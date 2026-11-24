@@ -45,4 +45,14 @@ EXCLUDED_TITLE_PATTERNS = [
     r"\bwin on \d{4}-\d{2}-\d{2}\b",      # matchs du jour (« Will FC Porto win on 2026-11-24? »)
     r"\bAND Will\b",                        # combinés de paris sportifs
     r"\b(end in a draw|both teams to score|total (goals|points))\b",
+    r"\bexact score\b",
+    r"\b(halftime|first half|second half|1st half|2nd half|to qualify|clean sheet|anytime goalscorer)\b",
+    r"\b\d+\s*-\s*\d+\b.*\?$",              # « … 0 - 0 Aston Villa FC? »
+    r"\b(FC|SK|CF|AFC)\b.*\b(win|beat|score|draw)\b",
 ]
+# Préfixes de slug des événements sportifs (ucl-gal-ast-2026-11-24, nba-lal-bos-…, epl-…)
+EXCLUDED_SLUG_PATTERN = (
+    r"^(ucl|uel|uecl|epl|lal|laliga|bun|bundesliga|sea|serie-?a|fl1|ligue-?1|mls|nba|wnba|nfl|nhl|mlb|ncaa[a-z]*|cbb|cfb|"
+    r"atp|wta|ufc|f1|ipl|cs2|lol|dota2?|val|copa|wc|fifa|afc|caf|kbo|npb|csl|tur|ere|por|sco|bra|arg|mex)-"
+    r"|^[a-z0-9]{2,6}-[a-z0-9]{2,4}-[a-z0-9]{2,4}-\d{4}-\d{2}-\d{2}"   # ligue-équipe-équipe-date
+)

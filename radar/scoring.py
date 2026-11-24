@@ -69,8 +69,15 @@ def group_buys(trades: list[dict]) -> list[BuyGroup]:
 _TITLE_RE = [re.compile(p, re.I) for p in config.EXCLUDED_TITLE_PATTERNS]
 
 
-def is_news_topic(title: str, tags: set[str] | None = None) -> bool:
+_SLUG_RE = re.compile(config.EXCLUDED_SLUG_PATTERN, re.I)
+
+
+def is_news_topic(title: str, tags: set[str] | None = None, market: dict | None = None, slug: str = "") -> bool:
     if tags and tags & config.EXCLUDED_TAGS:
+        return False
+    if market and (market.get("sportsMarketType") or market.get("gameStartTime") or market.get("gameId")):
+        return False  # Gamma marque ainsi les marchés sportifs
+    if slug and _SLUG_RE.search(slug):
         return False
     return not any(r.search(title or "") for r in _TITLE_RE)
 

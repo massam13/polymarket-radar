@@ -109,7 +109,7 @@ def run(lookback_min: int, dry_run: bool) -> int:
                 except Exception:
                     tags = set()
             tag_cache[g.event_slug] = tags
-        if is_news_topic(g.title, tag_cache[g.event_slug]):
+        if is_news_topic(g.title, tag_cache[g.event_slug], market_cache.get(g.condition_id), g.event_slug or g.slug):
             candidates.append(g)
     stats["news_candidates"] = len(candidates)
 
@@ -147,7 +147,13 @@ def run(lookback_min: int, dry_run: bool) -> int:
             continue
         ev = (m.get("events") or [{}])[0]
         tags = {str(t.get("slug", "")).lower() for t in (ev.get("tags") or [])}
-        if not is_news_topic(m.get("question", ""), tags):
+        ev_slug = ev.get("slug") or m.get("slug", "")
+        if not tags and ev_slug:
+            try:
+                tags = pm.event_tags(ev_slug)
+            except Exception:
+                tags = set()
+        if not is_news_topic(m.get("question", ""), tags, m, ev_slug):
             continue
         key = f"move:{m.get('conditionId')}"
         if key in seen and now - seen[key]["ts"] < config.MOVE_DEDUP_HOURS * 3600:
