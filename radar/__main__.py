@@ -12,7 +12,7 @@ from pathlib import Path
 from . import config, notify
 from . import polymarket as pm
 from .scoring import (fmt_usd, group_buys, is_news_topic, is_same_day_market, market_move, move_drivers,
-                      prelim_score, score_bet)
+                      prelim_score, score_bet, theme_clusters, theme_keys)
 
 STATE = Path(__file__).resolve().parent.parent / "state"
 SEEN_FILE, ALERTS_FILE = STATE / "seen.json", STATE / "alerts.jsonl"
@@ -77,6 +77,32 @@ def move_message(m, d1h, outcome, drivers=None, top_profile=None) -> str:
     return "\n".join(lines)
 
 
+def add_themes(wallet: dict, market_cache: dict, tag_cache: dict, max_markets: int = 12) -> None:
+    """Regroupe les marchés tradés par le compte en sujets (ex. 4 marchés « Venezuela » = 1 sujet)."""
+    info = wallet.get("market_info") or {}
+    if wallet.get("busy") or not info or len(info) > max_markets:
+        return
+    keys = {}
+    for cid, mi in info.items():
+        title, ev_slug = mi.get("title") or "", mi.get("event_slug") or ""
+        if not title or not ev_slug:
+            if cid not in market_cache:
+                try:
+                    market_cache[cid] = pm.market_by_condition(cid)
+                except Exception:
+                    market_cache[cid] = None
+            m = market_cache[cid] or {}
+            title = title or m.get("question", "")
+            ev_slug = ev_slug or ((m.get("events") or [{}])[0].get("slug") or "")
+        if ev_slug not in tag_cache:
+            try:
+                tag_cache[ev_slug] = pm.event_tags(ev_slug) if ev_slug else set()
+            except Exception:
+                tag_cache[ev_slug] = set()
+        keys[cid] = theme_keys(title, tag_cache[ev_slug]) | ({f"event:{ev_slug}"} if ev_slug else set())
+    wallet["theme_of"] = theme_clusters(keys)
+
+
 def run(lookback_min: int, dry_run: bool) -> int:
     now = int(time.time())
     since = now - lookback_min * 60
@@ -132,6 +158,7 @@ def run(lookback_min: int, dry_run: bool) -> int:
         if prev and g.cash < prev.get("cash", 0) * config.REALERT_FACTOR:
             continue
         wallet = pm.wallet_profile(g.wallet, now)
+        add_themes(wallet, market_cache, tag_cache)
         stats["wallets_checked"] += 1
         score, why = score_bet(g, wallet, market_cache[g.condition_id])
         print(f"  {score:3d}  {fmt_usd(g.cash):>10}  @{g.avg_price:.3f}  {g.title[:70]}")

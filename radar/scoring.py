@@ -82,6 +82,42 @@ def is_news_topic(title: str, tags: set[str] | None = None, market: dict | None 
     return not any(r.search(title or "") for r in _TITLE_RE)
 
 
+_TOKEN_RE = re.compile(r"\b[A-Z][A-Za-z.'\-]{2,}")
+
+
+def theme_keys(title: str, tags: set[str] | None = None) -> set[str]:
+    """Indices de sujet d'un marché : thèmes Polymarket spécifiques + noms propres du titre."""
+    keys = {f"tag:{t}" for t in (tags or set()) if t and t not in config.GENERIC_TAGS}
+    for tok in _TOKEN_RE.findall(title or ""):
+        w = tok.lower().strip(".'-")
+        if w.endswith("'s"):
+            w = w[:-2]
+        if len(w) >= 3 and w not in config.THEME_STOPWORDS:
+            keys.add(f"w:{w}")
+    return keys
+
+
+def theme_clusters(keys_by_market: dict[str, set[str]]) -> dict[str, int]:
+    """Regroupe les marchés qui partagent au moins un indice. Renvoie {marché: n° de sujet}."""
+    parent = {m: m for m in keys_by_market}
+
+    def find(x):
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+
+    owner: dict[str, str] = {}
+    for m, keys in keys_by_market.items():
+        for k in keys:
+            if k in owner:
+                parent[find(m)] = find(owner[k])
+            else:
+                owner[k] = m
+    roots: dict[str, int] = {}
+    return {m: roots.setdefault(find(m), len(roots)) for m in keys_by_market}
+
+
 def prelim_score(g: BuyGroup) -> int:
     """Partie du score calculable sans appel réseau (sert à trier qui on examine)."""
     return _longshot_pts(g.avg_price) + _size_pts(g.cash)
@@ -126,17 +162,25 @@ def score_bet(g: BuyGroup, wallet: dict, market: dict | None) -> tuple[int, list
             pts += 7; why.append(f"compte récent ({age:.0f} j)")
 
     n = wallet.get("markets_traded")
-    if n is not None and not wallet.get("busy"):
-        if n <= 1:
-            pts += 15; why.append("aucun autre marché tradé")
-        elif n <= 3:
-            pts += 10; why.append(f"seulement {n} marchés tradés")
-        elif n <= 10:
+    theme_of = wallet.get("theme_of") or {}
+    nt = len(set(theme_of.values())) if theme_of else n  # sujets distincts (marchés liés regroupés)
+    if n is not None and nt is not None and not wallet.get("busy"):
+        if nt <= 1:
+            pts += 15
+            why.append("aucun autre marché tradé" if n <= 1 else f"un seul sujet tradé ({n} marchés liés)")
+        elif nt <= 3:
+            pts += 10; why.append(f"seulement {nt} sujets tradés")
+        elif nt <= 10:
             pts += 4
     vol = wallet.get("volume_by_market") or {}
     total = sum(vol.values())
-    if total > 0 and vol.get(g.condition_id, 0) / total >= 0.8 and (n or 0) > 1:
-        pts += 5; why.append("80 %+ de son volume sur ce marché")
+    if theme_of and g.condition_id in theme_of:
+        mine = theme_of[g.condition_id]
+        same = sum(v for c, v in vol.items() if theme_of.get(c) == mine)
+    else:
+        same = vol.get(g.condition_id, 0)
+    if total > 0 and same / total >= 0.8 and (n or 0) > 1:
+        pts += 5; why.append("80 %+ de son volume sur ce sujet")
 
     if market:
         v24 = float(market.get("volume24hr") or 0)

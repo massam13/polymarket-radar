@@ -58,3 +58,20 @@ EXCLUDED_SLUG_PATTERN = (
     r"atp|wta|ufc|f1|ipl|cs2|lol|dota2?|val|copa|wc|fifa|afc|caf|kbo|npb|csl|tur|ere|por|sco|bra|arg|mex)-"
     r"|^[a-z0-9]{2,6}-[a-z0-9]{2,4}-[a-z0-9]{2,4}-\d{4}-\d{2}-\d{2}"   # ligue-équipe-équipe-date
 )
+
+# --- Regroupement par sujet (plusieurs marchés sur le même thème = un seul sujet) ---
+GENERIC_TAGS = {
+    "politics", "geopolitics", "world", "us-politics", "trump", "trump-presidency", "elections", "global-elections",
+    "economy", "business", "finance", "tech", "technology", "crypto", "middle-east", "featured", "breaking-news",
+    "news", "all", "recurring", "culture", "pop-culture", "science", "ai", "latin-america", "europe", "asia", "usa",
+    "us-news", "world-affairs", "foreign-policy", "military", "war", "international", "companies", "earnings",
+    "courts", "legal", "white-house", "congress", "midterms", "2026", "2027", "2028",
+}
+THEME_STOPWORDS = {
+    "will", "the", "before", "after", "end", "yes", "which", "who", "what", "when", "how", "does", "next", "new",
+    "january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november",
+    "december", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday",
+    "trump", "donald", "biden", "u.s", "us", "usa", "united", "states", "america", "american", "president",
+    "presidential", "election", "government", "house", "senate", "congress", "war", "republican", "democrat",
+    "democratic", "party", "announced", "announce", "out", "invade", "forces", "between", "above", "below",
+}

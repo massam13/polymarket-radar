@@ -76,6 +76,38 @@ if __name__ == "__main__":
     unittest.main()
 
 
+class TestSujets(unittest.TestCase):
+    def test_cas_maduro_un_seul_sujet(self):
+        from radar.scoring import theme_clusters, theme_keys
+        titles = {
+            "m1": ("Maduro out by January 31, 2026?", {"politics", "venezuela", "maduro"}),
+            "m2": ("Will the U.S. invade Venezuela by January 31, 2026?", {"politics", "venezuela"}),
+            "m3": ("Trump invokes War Powers against Venezuela by January 31, 2026?", {"geopolitics"}),
+            "m4": ("US forces in Venezuela by January 31, 2026?", set()),
+            "x": ("Fed decision in January?", {"economy", "fed"}),
+        }
+        clusters = theme_clusters({m: theme_keys(t, tags) for m, (t, tags) in titles.items()})
+        self.assertEqual(len({clusters[m] for m in ("m1", "m2", "m3", "m4")}), 1)
+        self.assertNotEqual(clusters["x"], clusters["m1"])
+
+    def test_trump_seul_ne_relie_pas(self):
+        from radar.scoring import theme_clusters, theme_keys
+        c = theme_clusters({"a": theme_keys("Will Trump pardon Ghislaine Maxwell?"),
+                            "b": theme_keys("Will Trump visit China in 2026?")})
+        self.assertNotEqual(c["a"], c["b"])
+
+    def test_score_maduro_30_decembre(self):
+        # 30/12 : ~1 323 $ à 0,09 sur « Maduro out », compte de 3-4 jours, 2 marchés Venezuela tradés
+        trades = [trade(conditionId="m1", title="Maduro out by January 31, 2026?", size=13_769, price=0.09),
+                  trade(conditionId="m1", title="Maduro out by January 31, 2026?", size=850, price=0.10)]
+        [g] = group_buys(trades)
+        wallet = {"age_days": 3.5, "markets_traded": 2, "busy": False,
+                  "volume_by_market": {"m1": 1323, "m4": 96}, "theme_of": {"m1": 0, "m4": 0}}
+        score, why = score_bet(g, wallet, None)
+        self.assertGreaterEqual(score, 65, why)
+        self.assertIn("un seul sujet tradé (2 marchés liés)", why)
+
+
 class TestApiV2(unittest.TestCase):
     def test_normalisation_trade_v2(self):
         from radar.polymarket import _rows, normalize_trade

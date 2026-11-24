@@ -152,7 +152,8 @@ def event_tags(event_slug: str) -> set[str]:
 
 def wallet_profile(address: str, now_ts: int) -> dict:
     """Âge du compte, nombre de marchés tradés, part du volume par marché (Data API v2 /activity)."""
-    prof: dict = {"address": address, "age_days": None, "markets_traded": None, "volume_by_market": {}, "busy": False}
+    prof: dict = {"address": address, "age_days": None, "markets_traded": None, "volume_by_market": {},
+                  "market_info": {}, "busy": False}
     try:
         res = get(DATA, "/v2/activity", {"user": address, "limit": 1000, "start": 1})
         acts, cursor = _rows(res)
@@ -175,6 +176,9 @@ def wallet_profile(address: str, now_ts: int) -> dict:
         if usd is None:
             usd = float(_pick(a, "size", default=0) or 0) * float(_pick(a, "price", default=0) or 0)
         vol[cid] = vol.get(cid, 0.0) + float(usd or 0)
+        info = prof["market_info"].setdefault(cid, {})
+        info.setdefault("title", _pick(a, "title", default=""))
+        info.setdefault("event_slug", _pick(a, "event_slug", "eventSlug", default=""))
     prof["volume_by_market"] = vol
     prof["markets_traded"] = len(vol)
     return prof
