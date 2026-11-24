@@ -15,6 +15,10 @@
   "cash": 2706.0,
   "ts": 1795508789
  },
+ "move:0x2e511a9adb91f1e5be6ddf065ea72f6d9dac25576285f7edfdd265fa85916ab1": {
+  "cash": 0,
+  "ts": 1795562131
+ },
  "move:0x50a827395b27dc98221aef623dea314fa6b5043da55be2944dbb257744a3b207": {
   "cash": 0,
   "ts": 1795554059
