@@ -1,0 +1,8 @@
+{
+  "name": "maduro-van-dyke",
+  "prefix": "0x31a5",
+  "suffix": "8ed9",
+  "slugs": ["maduro-out-by-january-31-2026", "maduro-out-by-january-31", "maduro-out-in-2025-january-31"],
+  "queries": ["Maduro out by January 31", "Maduro out"],
+  "title_contains": ["maduro", "january 31"]
+}

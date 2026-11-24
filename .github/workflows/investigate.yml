@@ -1,0 +1,34 @@
+name: Enquête
+
+# Se lance tout seul quand on pousse une nouvelle demande dans research/request.json
+on:
+  push:
+    paths: ["research/request.json"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: scan   # même groupe que le scan, pour ne pas se marcher dessus en écrivant dans le dépôt
+  cancel-in-progress: false
+
+jobs:
+  investigate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Enquête
+        run: python -m radar.backtest research/request.json
+      - name: Enregistrer le rapport
+        run: |
+          git config user.name "polymarket-radar"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add research/
+          git diff --cached --quiet && exit 0
+          git commit -m "research: $(date -u +%FT%TZ)"
+          git pull --rebase && git push
