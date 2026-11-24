@@ -113,6 +113,7 @@ def run(lookback_min: int, dry_run: bool) -> int:
             candidates.append(g)
     stats["news_candidates"] = len(candidates)
 
+    scored: list[tuple] = []
     for g in candidates[: config.MAX_WALLET_LOOKUPS]:
         prev = seen.get(g.key)
         if prev and g.cash < prev.get("cash", 0) * config.REALERT_FACTOR:
@@ -121,6 +122,7 @@ def run(lookback_min: int, dry_run: bool) -> int:
         stats["wallets_checked"] += 1
         score, why = score_bet(g, wallet, market_cache[g.condition_id])
         print(f"  {score:3d}  {fmt_usd(g.cash):>10}  @{g.avg_price:.3f}  {g.title[:70]}")
+        scored.append((score, g.cash, g.avg_price, g.title))
         if score >= config.MIN_SCORE:
             text = bet_message(g, score, why, market_cache[g.condition_id])
             alerts.append({"kind": "bet", "key": g.key, "score": score, "cash": round(g.cash, 2),
@@ -128,6 +130,10 @@ def run(lookback_min: int, dry_run: bool) -> int:
                            "wallet": g.wallet, "condition_id": g.condition_id, "why": why,
                            "first_ts": g.first_ts, "last_ts": g.last_ts, "tx": g.tx[:10], "text": text})
 
+    top = sorted(scored, reverse=True)[:5]
+    if top:
+        print("::notice title=Meilleurs scores::" + " · ".join(
+            f"{sc}/100 {fmt_usd(c)} @{p:.0%} {t[:50]}" for sc, c, p, t in top))
     # 2) Mouvements brusques de prix sur les marchés d'actualité les plus liquides
     try:
         markets = pm.top_markets(500)
