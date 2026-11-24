@@ -42,4 +42,7 @@ EXCLUDED_TITLE_PATTERNS = [
     r"\bprice of (bitcoin|ethereum|solana|xrp)\b",
     r"# ?of (tweets|posts)",
     r"\bwill .* say\b",
+    r"\bwin on \d{4}-\d{2}-\d{2}\b",      # matchs du jour (« Will FC Porto win on 2026-11-24? »)
+    r"\bAND Will\b",                        # combinés de paris sportifs
+    r"\b(end in a draw|both teams to score|total (goals|points))\b",
 ]

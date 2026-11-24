@@ -13,7 +13,7 @@ DATA = "https://data-api.polymarket.com"
 UA = "polymarket-radar/0.1"
 
 
-def get(base: str, path: str, params: dict | None = None, retries: int = 3) -> Any:
+def get(base: str, path: str, params: dict | None = None, retries: int = 5) -> Any:
     url = base + path
     if params:
         url += "?" + urllib.parse.urlencode({k: v for k, v in params.items() if v is not None}, doseq=True)
@@ -28,7 +28,7 @@ def get(base: str, path: str, params: dict | None = None, retries: int = 3) -> A
                 raise RuntimeError(f"Réponse non JSON sur {url} : {raw[:200]!r}")
         except urllib.error.HTTPError as e:
             if e.code in (429, 500, 502, 503, 504) and attempt < retries - 1:
-                time.sleep(2 * (attempt + 1))
+                time.sleep(3 * (attempt + 1))
                 continue
             body = e.read()[:300].decode("utf-8", "replace")
             raise RuntimeError(f"HTTP {e.code} sur {url} : {body}") from e

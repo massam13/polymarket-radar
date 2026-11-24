@@ -36,6 +36,8 @@ class TestScoring(unittest.TestCase):
         self.assertTrue(is_news_topic("Will Jensen Huang rejoin NVIDIA by December 31, 2026?"))
         self.assertFalse(is_news_topic("Bitcoin Up or Down - November 24, 3PM ET"))
         self.assertFalse(is_news_topic("Lakers vs. Celtics"))
+        self.assertFalse(is_news_topic("Will FC Porto win on 2026-11-24? AND Will FC Bayern win on 2026-11-24?"))
+        self.assertTrue(is_news_topic("Will J.D. Vance win the 2028 Republican presidential nomination?"))
         self.assertFalse(is_news_topic("Will Bitcoin reach $150,000 in December?"))
         self.assertFalse(is_news_topic("Fed decision in December?", {"sports"}))
 
