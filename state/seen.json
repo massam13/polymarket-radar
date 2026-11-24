@@ -15,6 +15,10 @@
   "cash": 2706.0,
   "ts": 1795508789
  },
+ "move:0x50a827395b27dc98221aef623dea314fa6b5043da55be2944dbb257744a3b207": {
+  "cash": 0,
+  "ts": 1795554059
+ },
  "move:0x5416df8a9d2d6c8d0fccb3c25b70519b65200ea3cb78b4800f3e1e139bfce5e0": {
   "cash": 0,
   "ts": 1795545934
@@ -22,5 +26,17 @@
  "move:0x58b9a92319f1883d451c79654dfe971e80f264af966f6af14b3dcf7ef524ceff": {
   "cash": 0,
   "ts": 1795545050
+ },
+ "move:0x9580549ab215ac7659e5990bdb6b92883205885c909026fe42fb16cd75b1186c": {
+  "cash": 0,
+  "ts": 1795554059
+ },
+ "move:0xe91dde3bb1cb759d9ceea89eba8b23d2f7f84c09568aef180d32383904710813": {
+  "cash": 0,
+  "ts": 1795554059
+ },
+ "move:0xeb5cf0ef5953a5d3bc98f4066def7ac8b1fe85a8a1982add4b53b87826695cc9": {
+  "cash": 0,
+  "ts": 1795554059
  }
 }
