@@ -72,7 +72,8 @@ def run(lookback_min: int, dry_run: bool) -> int:
     stats = {"trades": 0, "groups": 0, "news_candidates": 0, "wallets_checked": 0, "markets_scanned": 0}
 
     # 1) Paris suspects : gros achats sur des issues improbables
-    trades, feed = pm.recent_large_trades(since, config.MIN_TRADE_CASH)
+    trades, feed = pm.recent_large_trades(since, config.MIN_TRADE_CASH,
+                                           max_pages=max(200, lookback_min * 2))  # ~50 000 trades/h
     stats["trades"] = len(trades)
     feed_msg = (f"{feed['rows']} trades lus sur {feed['pages']} page(s), plus ancien "
                 f"{hhmm(feed['oldest']) if feed['oldest'] else '—'}{' (TRONQUÉ)' if feed['truncated'] else ''}")
