@@ -172,5 +172,52 @@ def market_move(m: dict) -> tuple[float, str] | None:
     return d1h, first
 
 
+_MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September",
+           "October", "November", "December"]
+
+
+def is_same_day_market(m: dict, now_ts: int) -> bool:
+    """Marché qui se termine bientôt ou porte la date du jour : souvent un événement suivi en direct."""
+    from datetime import datetime, timedelta, timezone
+    end = m.get("endDate") or m.get("end_date")
+    if end:
+        try:
+            end_ts = datetime.fromisoformat(str(end).replace("Z", "+00:00")).timestamp()
+            if end_ts - now_ts < config.MOVE_MIN_HOURS_TO_END * 3600:
+                return True
+        except ValueError:
+            pass
+    title = (m.get("question") or "").lower()
+    for delta in (-1, 0, 1):
+        d = datetime.fromtimestamp(now_ts, timezone.utc) + timedelta(days=delta)
+        if re.search(rf"\b{_MONTHS[d.month - 1].lower()} {d.day}\b", title):
+            return True
+    return False
+
+
+def move_drivers(trades: list[dict], d1h: float) -> dict:
+    """Qui a poussé le prix ? Acheteurs de l'issue qui monte (ou vendeurs de l'issue opposée)."""
+    up_idx = 0 if d1h > 0 else 1
+    cash_by_wallet: dict[str, float] = {}
+    names: dict[str, str] = {}
+    for t in trades:
+        idx, side, size, price = int(t.get("outcomeIndex") or 0), t.get("side"), t["size"], t["price"]
+        if side == "BUY" and idx == up_idx:
+            cash = size * price
+        elif side == "SELL" and idx != up_idx:
+            cash = size * (1 - price)
+        else:
+            continue
+        w = t.get("proxyWallet") or ""
+        cash_by_wallet[w] = cash_by_wallet.get(w, 0.0) + cash
+        names.setdefault(w, t.get("pseudonym") or w[:10])
+    total = sum(cash_by_wallet.values())
+    if not total:
+        return {"wallets": 0, "total": 0.0}
+    top_w, top_cash = max(cash_by_wallet.items(), key=lambda kv: kv[1])
+    return {"wallets": len(cash_by_wallet), "total": total, "top_wallet": top_w,
+            "top_name": names.get(top_w, ""), "top_cash": top_cash, "top_share": top_cash / total}
+
+
 def fmt_usd(x: float) -> str:
     return f"{x:,.0f} $".replace(",", " ")

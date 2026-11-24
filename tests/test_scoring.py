@@ -48,9 +48,28 @@ class TestScoring(unittest.TestCase):
         self.assertFalse(is_news_topic("Fed decision in December?", {"sports"}))
 
     def test_mouvement_de_marche(self):
-        m = {"oneHourPriceChange": 0.2, "volume24hr": 80_000, "outcomes": '["Yes", "No"]'}
-        self.assertEqual(market_move(m), (0.2, "Yes"))
-        self.assertIsNone(market_move({"oneHourPriceChange": 0.03, "volume24hr": 80_000}))
+        m = {"oneHourPriceChange": 0.25, "volume24hr": 150_000, "outcomes": '["Yes", "No"]'}
+        self.assertEqual(market_move(m), (0.25, "Yes"))
+        self.assertIsNone(market_move({"oneHourPriceChange": 0.12, "volume24hr": 150_000}))
+        self.assertIsNone(market_move({"oneHourPriceChange": 0.29, "volume24hr": 26_948}))  # la dinde
+
+    def test_marche_du_jour(self):
+        from radar.scoring import is_same_day_market
+        now = 1795550000  # 24/11/2026
+        self.assertTrue(is_same_day_market({"question": "Will a turkey audibly gobble during the Thanksgiving Turkey Pardon on November 24?"}, now))
+        self.assertTrue(is_same_day_market({"question": "X?", "endDate": "2026-11-25T05:00:00Z"}, now))
+        self.assertFalse(is_same_day_market({"question": "Will Jensen Huang rejoin NVIDIA by December 31?", "endDate": "2026-12-31T23:59:00Z"}, now))
+
+    def test_auteurs_du_mouvement(self):
+        from radar.scoring import move_drivers
+        trades = [{"proxyWallet": "0xa", "side": "BUY", "outcomeIndex": 0, "size": 10_000, "price": 0.5, "pseudonym": "whale"},
+                  {"proxyWallet": "0xb", "side": "BUY", "outcomeIndex": 0, "size": 1_000, "price": 0.5},
+                  {"proxyWallet": "0xc", "side": "SELL", "outcomeIndex": 1, "size": 1_000, "price": 0.5},
+                  {"proxyWallet": "0xd", "side": "BUY", "outcomeIndex": 1, "size": 9_999, "price": 0.5}]
+        d = move_drivers(trades, 0.25)
+        self.assertEqual(d["wallets"], 3)
+        self.assertEqual(d["top_name"], "whale")
+        self.assertAlmostEqual(d["top_share"], 5000 / 6000)
 
 
 if __name__ == "__main__":

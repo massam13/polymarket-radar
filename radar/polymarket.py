@@ -118,6 +118,24 @@ def recent_large_trades(since_ts: int, min_cash: float, page: int = 1000, max_pa
                  "truncated": bool(cursor) and (pages >= max_pages or error is not None), "error": error}
 
 
+def market_trades(condition_id: str, since_ts: int, max_pages: int = 10) -> list[dict]:
+    """Trades d'un marché depuis since_ts (du plus récent au plus ancien)."""
+    out: list[dict] = []
+    cursor = None
+    for _ in range(max_pages):
+        rows, cursor = _rows(get(DATA, "/v2/trades", {"condition": condition_id, "limit": 1000, "cursor": cursor}))
+        done = False
+        for raw in rows:
+            t = normalize_trade(raw)
+            if t["timestamp"] < since_ts:
+                done = True
+                continue
+            out.append(t)
+        if done or not cursor or not rows:
+            break
+    return out
+
+
 def market_by_condition(condition_id: str) -> dict | None:
     res = get(GAMMA, "/markets", {"condition_ids": condition_id, "limit": 1})
     return res[0] if res else None

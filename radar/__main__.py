@@ -11,7 +11,8 @@ from pathlib import Path
 
 from . import config, notify
 from . import polymarket as pm
-from .scoring import fmt_usd, group_buys, is_news_topic, market_move, prelim_score, score_bet
+from .scoring import (fmt_usd, group_buys, is_news_topic, is_same_day_market, market_move, move_drivers,
+                      prelim_score, score_bet)
 
 STATE = Path(__file__).resolve().parent.parent / "state"
 SEEN_FILE, ALERTS_FILE = STATE / "seen.json", STATE / "alerts.jsonl"
@@ -53,15 +54,27 @@ def bet_message(g, score, why, market) -> str:
     return "\n".join(lines)
 
 
-def move_message(m, d1h, outcome) -> str:
+def move_message(m, d1h, outcome, drivers=None, top_profile=None) -> str:
     v24 = float(m.get("volume24hr") or 0)
     ev = (m.get("events") or [{}])[0].get("slug") or m.get("slug", "")
-    return "\n".join([
-        f"📈 Mouvement brusque — {d1h:+.0%} en 1 h sur « {outcome} »",
+    lines = [
+        f"📈 Mouvement brusque — {d1h * 100:+.0f} points en 1 h sur « {outcome} »",
         m.get("question", ""),
         f"Volume 24 h : {fmt_usd(v24)}",
-        f"https://polymarket.com/event/{ev}",
-    ])
+    ]
+    if drivers and drivers.get("wallets"):
+        lines.append(f"Poussé par {drivers['wallets']} compte(s) pour {fmt_usd(drivers['total'])} sur 1 h")
+        top = f"Le plus gros : {drivers['top_name']} — {drivers['top_share']:.0%} ({fmt_usd(drivers['top_cash'])})"
+        if top_profile and top_profile.get("age_days") is not None:
+            top += f", compte de {top_profile['age_days']:.0f} j"
+        if top_profile and top_profile.get("markets_traded") is not None and not top_profile.get("busy"):
+            top += f", {top_profile['markets_traded']} marché(s) tradé(s)"
+        lines.append(top)
+        if drivers["top_share"] >= 0.5:
+            lines.append("⚠️ Un seul compte fait l'essentiel du mouvement")
+            lines.append(f"https://polymarket.com/profile/{drivers['top_wallet']}")
+    lines.append(f"https://polymarket.com/event/{ev}")
+    return "\n".join(lines)
 
 
 def run(lookback_min: int, dry_run: bool) -> int:
@@ -136,7 +149,7 @@ def run(lookback_min: int, dry_run: bool) -> int:
             f"{sc}/100 {fmt_usd(c)} @{p:.0%} {t[:50]}" for sc, c, p, t in top))
     # 2) Mouvements brusques de prix sur les marchés d'actualité les plus liquides
     try:
-        markets = pm.top_markets(500)
+        markets = pm.top_markets(500) if config.MOVES_ENABLED else []
     except Exception as e:
         print(f"top_markets KO : {e}", file=sys.stderr)
         markets = []
@@ -153,15 +166,22 @@ def run(lookback_min: int, dry_run: bool) -> int:
                 tags = pm.event_tags(ev_slug)
             except Exception:
                 tags = set()
-        if not is_news_topic(m.get("question", ""), tags, m, ev_slug):
+        if not is_news_topic(m.get("question", ""), tags, m, ev_slug) or is_same_day_market(m, now):
             continue
         key = f"move:{m.get('conditionId')}"
         if key in seen and now - seen[key]["ts"] < config.MOVE_DEDUP_HOURS * 3600:
             continue
         d1h, outcome = mv
+        drivers, top_profile = None, None
+        try:
+            drivers = move_drivers(pm.market_trades(m.get("conditionId"), now - 3600), d1h)
+            if drivers.get("wallets") and drivers["top_share"] >= 0.3:
+                top_profile = pm.wallet_profile(drivers["top_wallet"], now)
+        except Exception as e:
+            print(f"::warning title=Auteurs du mouvement KO::{type(e).__name__}: {e}"[:500])
         alerts.append({"kind": "move", "key": key, "delta_1h": d1h, "title": m.get("question"),
                        "condition_id": m.get("conditionId"), "volume24hr": m.get("volume24hr"),
-                       "text": move_message(m, d1h, outcome)})
+                       "drivers": drivers, "text": move_message(m, d1h, outcome, drivers, top_profile)})
 
     # 3) Envoi + mémoire
     for a in alerts:

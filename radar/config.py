@@ -22,8 +22,10 @@ MIN_SCORE = _num("MIN_SCORE", 60)                  # seuil d'alerte (0-100)
 REALERT_FACTOR = _num("REALERT_FACTOR", 2.0)       # ré-alerte si la mise a été multipliée par 2 depuis
 
 # --- Mouvements de marché ---
-MOVE_MIN_1H = _num("MOVE_MIN_1H", 0.12)            # +12 points de proba en 1 h
-MOVE_MIN_VOL24 = _num("MOVE_MIN_VOL24", 25000)     # sur un marché qui a au moins 25 k$ de volume 24 h
+MOVES_ENABLED = _num("MOVES_ENABLED", 1) > 0      # RADAR_MOVES_ENABLED=0 pour couper ces alertes
+MOVE_MIN_1H = _num("MOVE_MIN_1H", 0.20)            # +20 points de proba en 1 h
+MOVE_MIN_VOL24 = _num("MOVE_MIN_VOL24", 100000)    # sur un marché qui a au moins 100 k$ de volume 24 h
+MOVE_MIN_HOURS_TO_END = _num("MOVE_MIN_HOURS_TO_END", 24)  # écarte les marchés « du jour » (événements en direct)
 MOVE_DEDUP_HOURS = _num("MOVE_DEDUP_HOURS", 6)
 
 # --- Sujets d'actualité : ce qu'on écarte ---
