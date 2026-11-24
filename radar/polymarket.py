@@ -21,12 +21,17 @@ def get(base: str, path: str, params: dict | None = None, retries: int = 3) -> A
         try:
             req = urllib.request.Request(url, headers={"User-Agent": UA, "Accept": "application/json"})
             with urllib.request.urlopen(req, timeout=25) as resp:
-                return json.load(resp)
+                raw = resp.read()
+            try:
+                return json.loads(raw)
+            except ValueError:
+                raise RuntimeError(f"Réponse non JSON sur {url} : {raw[:200]!r}")
         except urllib.error.HTTPError as e:
             if e.code in (429, 500, 502, 503, 504) and attempt < retries - 1:
                 time.sleep(2 * (attempt + 1))
                 continue
-            raise
+            body = e.read()[:300].decode("utf-8", "replace")
+            raise RuntimeError(f"HTTP {e.code} sur {url} : {body}") from e
         except urllib.error.URLError:
             if attempt < retries - 1:
                 time.sleep(2 * (attempt + 1))

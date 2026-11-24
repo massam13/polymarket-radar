@@ -163,7 +163,16 @@ def main() -> int:
     ap.add_argument("--lookback", type=int, default=config.LOOKBACK_MIN, help="minutes à relire")
     ap.add_argument("--dry-run", action="store_true", help="n'envoie rien et ne touche pas à state/")
     args = ap.parse_args()
-    return run(args.lookback, args.dry_run)
+    try:
+        return run(args.lookback, args.dry_run)
+    except Exception as e:
+        import traceback
+        tb = traceback.format_exc()
+        print(tb, file=sys.stderr)
+        # Annotation lisible publiquement (les logs complets exigent d'être connecté à GitHub)
+        last = " | ".join(line.strip() for line in tb.strip().splitlines()[-4:])
+        print(f"::error title=Scan KO::{type(e).__name__}: {e} || {last}".replace("\n", " ")[:1500])
+        return 1
 
 
 if __name__ == "__main__":
