@@ -186,7 +186,8 @@ def main() -> int:
         tb = traceback.format_exc()
         print(tb, file=sys.stderr)
         # Annotation lisible publiquement (les logs complets exigent d'être connecté à GitHub)
-        last = " | ".join(line.strip() for line in tb.strip().splitlines()[-4:])
+        ours = [line.strip() for line in tb.splitlines() if "/radar/" in line]
+        last = " | ".join(ours[-3:] + [tb.strip().splitlines()[-1]])
         print(f"::error title=Scan KO::{type(e).__name__}: {e} || {last}".replace("\n", " ")[:1500])
         return 1
 
