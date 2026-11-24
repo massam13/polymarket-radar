@@ -47,3 +47,18 @@ class TestScoring(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestApiV2(unittest.TestCase):
+    def test_normalisation_trade_v2(self):
+        from radar.polymarket import _rows, normalize_trade
+        res = {"data": [{"proxy_wallet": "0xw", "side": "BUY", "token_id": "1", "condition_id": "0xc",
+                         "size": 100, "price": 0.07, "timestamp": 1791473091, "outcome": "Yes",
+                         "outcome_index": 0, "transaction_hash": "0xt"}],
+               "pagination": {"has_more": True, "next_cursor": "abc"}}
+        rows, cursor = _rows(res)
+        self.assertEqual(cursor, "abc")
+        t = normalize_trade(rows[0])
+        self.assertEqual((t["proxyWallet"], t["conditionId"], t["outcomeIndex"], t["transactionHash"]),
+                         ("0xw", "0xc", 0, "0xt"))
+        self.assertEqual(normalize_trade({"timestamp": 1791473091000})["timestamp"], 1791473091)

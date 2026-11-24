@@ -72,21 +72,40 @@ def run(lookback_min: int, dry_run: bool) -> int:
     stats = {"trades": 0, "groups": 0, "news_candidates": 0, "wallets_checked": 0, "markets_scanned": 0}
 
     # 1) Paris suspects : gros achats sur des issues improbables
-    trades = pm.recent_large_trades(since, config.MIN_TRADE_CASH)
+    trades, feed = pm.recent_large_trades(since, config.MIN_TRADE_CASH)
     stats["trades"] = len(trades)
+    print(f"Flux : {feed['rows']} trades lus sur {feed['pages']} page(s), plus ancien "
+          f"{hhmm(feed['oldest']) if feed['oldest'] else '—'}{' (TRONQUÉ)' if feed['truncated'] else ''}")
+    print(f"::notice title=Champs v2::{', '.join(feed['sample_keys'])}")
     groups = [g for g in group_buys(trades)
               if g.cash >= config.MIN_GROUP_CASH and g.avg_price <= config.MAX_PRICE]
     stats["groups"] = len(groups)
 
+    # Le flux v2 ne donne plus slug / event / tags : on complète via Gamma (en cache, nombre de lookups borné)
     market_cache: dict[str, dict | None] = {}
     tag_cache: dict[str, set] = {}
     candidates = []
     for g in sorted(groups, key=prelim_score, reverse=True):
-        if g.event_slug not in tag_cache:
+        if g.condition_id not in market_cache:
+            if len(market_cache) >= config.MAX_MARKET_LOOKUPS:
+                break
             try:
-                tag_cache[g.event_slug] = pm.event_tags(g.event_slug)
+                market_cache[g.condition_id] = pm.market_by_condition(g.condition_id)
             except Exception:
-                tag_cache[g.event_slug] = set()
+                market_cache[g.condition_id] = None
+        m = market_cache[g.condition_id] or {}
+        ev = (m.get("events") or [{}])[0]
+        g.title = g.title or m.get("question", "")
+        g.slug = g.slug or m.get("slug", "")
+        g.event_slug = g.event_slug or ev.get("slug", "")
+        if g.event_slug not in tag_cache:
+            tags = {str(t.get("slug", "")).lower() for t in (ev.get("tags") or []) if isinstance(t, dict)}
+            if not tags:
+                try:
+                    tags = pm.event_tags(g.event_slug)
+                except Exception:
+                    tags = set()
+            tag_cache[g.event_slug] = tags
         if is_news_topic(g.title, tag_cache[g.event_slug]):
             candidates.append(g)
     stats["news_candidates"] = len(candidates)
@@ -95,11 +114,6 @@ def run(lookback_min: int, dry_run: bool) -> int:
         prev = seen.get(g.key)
         if prev and g.cash < prev.get("cash", 0) * config.REALERT_FACTOR:
             continue
-        if g.condition_id not in market_cache:
-            try:
-                market_cache[g.condition_id] = pm.market_by_condition(g.condition_id)
-            except Exception:
-                market_cache[g.condition_id] = None
         wallet = pm.wallet_profile(g.wallet, now)
         stats["wallets_checked"] += 1
         score, why = score_bet(g, wallet, market_cache[g.condition_id])

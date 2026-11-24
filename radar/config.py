@@ -13,6 +13,7 @@ def _num(name: str, default: float) -> float:
 LOOKBACK_MIN = int(_num("LOOKBACK_MIN", 60))       # fenêtre relue à chaque passage (chevauchement voulu, dédoublonné)
 MIN_TRADE_CASH = _num("MIN_TRADE_CASH", 300)       # on ne récupère que les ordres >= 300 $
 MAX_WALLET_LOOKUPS = int(_num("MAX_WALLET_LOOKUPS", 40))
+MAX_MARKET_LOOKUPS = int(_num("MAX_MARKET_LOOKUPS", 120))
 
 # --- Paris suspects ---
 MIN_GROUP_CASH = _num("MIN_GROUP_CASH", 1000)      # mise cumulée minimale d'un compte sur une issue

@@ -39,20 +39,76 @@ def get(base: str, path: str, params: dict | None = None, retries: int = 3) -> A
             raise
 
 
-def recent_large_trades(since_ts: int, min_cash: float, page: int = 500, max_pages: int = 20) -> list[dict]:
-    """Ordres « taker » >= min_cash depuis since_ts, du plus récent au plus ancien."""
+def _pick(d: dict, *names, default=None):
+    for n in names:
+        if d.get(n) is not None:
+            return d[n]
+    return default
+
+
+def _ts(v) -> int:
+    try:
+        t = int(float(v))
+    except (TypeError, ValueError):
+        return 0
+    return t // 1000 if t > 10**12 else t
+
+
+def _rows(res) -> tuple[list, str | None]:
+    """Data API v2 : {"data": [...], "pagination": {"next_cursor": ...}} (tolère l'ancien tableau nu)."""
+    if isinstance(res, list):
+        return res, None
+    if not isinstance(res, dict):
+        return [], None
+    pag = res.get("pagination") or {}
+    return (res.get("data") or []), (pag.get("next_cursor") or pag.get("nextCursor"))
+
+
+def normalize_trade(t: dict) -> dict:
+    """Ramène une ligne de trade v2 (snake_case) au format interne."""
+    return {
+        "proxyWallet": _pick(t, "proxy_wallet", "proxyWallet", "wallet", default=""),
+        "side": str(_pick(t, "side", default="")).upper(),
+        "size": float(_pick(t, "size", default=0) or 0),
+        "price": float(_pick(t, "price", default=0) or 0),
+        "timestamp": _ts(_pick(t, "timestamp", "created_at", default=0)),
+        "conditionId": _pick(t, "condition_id", "conditionId", default=""),
+        "outcome": _pick(t, "outcome", default=""),
+        "outcomeIndex": _pick(t, "outcome_index", "outcomeIndex", default=0),
+        "title": _pick(t, "title", default=""),
+        "slug": _pick(t, "slug", "market_slug", default=""),
+        "eventSlug": _pick(t, "event_slug", "eventSlug", default=""),
+        "pseudonym": _pick(t, "pseudonym", "name", default=""),
+        "transactionHash": _pick(t, "transaction_hash", "transactionHash", default=""),
+    }
+
+
+def recent_large_trades(since_ts: int, min_cash: float, page: int = 1000, max_pages: int = 200) -> tuple[list[dict], dict]:
+    """Ordres « taker » >= min_cash depuis since_ts (flux global, du plus récent au plus ancien).
+    La v2 n'a plus de filtre par montant : on lit tout le flux et on filtre ici."""
     out: list[dict] = []
-    for i in range(max_pages):
-        batch = get(DATA, "/trades", {
-            "limit": page, "offset": i * page, "takerOnly": "true",
-            "filterType": "CASH", "filterAmount": int(min_cash),
-        })
-        if not batch:
+    cursor, pages, seen_rows, oldest = None, 0, 0, None
+    sample_keys: list[str] = []
+    for _ in range(max_pages):
+        res = get(DATA, "/v2/trades", {"limit": page, "cursor": cursor})
+        rows, cursor = _rows(res)
+        pages += 1
+        if rows and not sample_keys:
+            sample_keys = sorted(rows[0].keys())
+        stop = False
+        for raw in rows:
+            t = normalize_trade(raw)
+            seen_rows += 1
+            if t["timestamp"] < since_ts:
+                stop = True
+                continue
+            oldest = t["timestamp"] if oldest is None else min(oldest, t["timestamp"])
+            if t["size"] * t["price"] >= min_cash:
+                out.append(t)
+        if stop or not cursor or not rows:
             break
-        out.extend(t for t in batch if int(t.get("timestamp", 0)) >= since_ts)
-        if len(batch) < page or int(batch[-1].get("timestamp", 0)) < since_ts:
-            break
-    return out
+    return out, {"pages": pages, "rows": seen_rows, "oldest": oldest, "sample_keys": sample_keys,
+                 "truncated": bool(cursor) and pages >= max_pages}
 
 
 def market_by_condition(condition_id: str) -> dict | None:
@@ -70,29 +126,32 @@ def event_tags(event_slug: str) -> set[str]:
 
 
 def wallet_profile(address: str, now_ts: int) -> dict:
-    """Âge du compte, nombre de marchés tradés, part du volume par marché."""
+    """Âge du compte, nombre de marchés tradés, part du volume par marché (Data API v2 /activity)."""
     prof: dict = {"address": address, "age_days": None, "markets_traded": None, "volume_by_market": {}, "busy": False}
     try:
-        acts = get(DATA, "/activity", {"user": address, "limit": 500, "sortBy": "TIMESTAMP", "sortDirection": "DESC"}) or []
+        res = get(DATA, "/v2/activity", {"user": address, "limit": 1000, "start": 1})
+        acts, cursor = _rows(res)
     except Exception:
-        acts = []
-    if acts:
-        prof["busy"] = len(acts) >= 500  # historique tronqué : compte actif, donc pas « neuf »
-        if not prof["busy"]:
-            first = min(int(a.get("timestamp", now_ts)) for a in acts)
-            prof["age_days"] = (now_ts - first) / 86400
-        vol: dict[str, float] = {}
-        for a in acts:
-            if a.get("type") == "TRADE" and a.get("conditionId"):
-                vol[a["conditionId"]] = vol.get(a["conditionId"], 0.0) + float(a.get("usdcSize") or 0)
-        prof["volume_by_market"] = vol
-        prof["markets_traded"] = len(vol)
-    try:
-        traded = get(DATA, "/traded", {"user": address})
-        if isinstance(traded, dict) and traded.get("traded") is not None:
-            prof["markets_traded"] = int(traded["traded"])
-    except Exception:
-        pass
+        return prof
+    if not acts:
+        return prof
+    prof["busy"] = bool(cursor)  # plus de 1000 événements : compte actif, donc pas « neuf »
+    if not prof["busy"]:
+        first = min(_ts(_pick(a, "timestamp", default=now_ts)) for a in acts)
+        prof["age_days"] = (now_ts - first) / 86400
+    vol: dict[str, float] = {}
+    for a in acts:
+        if str(_pick(a, "type", default="")).upper() != "TRADE":
+            continue
+        cid = _pick(a, "condition_id", "conditionId")
+        if not cid:
+            continue
+        usd = _pick(a, "usdc_size", "usdcSize")
+        if usd is None:
+            usd = float(_pick(a, "size", default=0) or 0) * float(_pick(a, "price", default=0) or 0)
+        vol[cid] = vol.get(cid, 0.0) + float(usd or 0)
+    prof["volume_by_market"] = vol
+    prof["markets_traded"] = len(vol)
     return prof
 
 
