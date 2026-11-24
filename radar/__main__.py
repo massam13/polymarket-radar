@@ -74,9 +74,11 @@ def run(lookback_min: int, dry_run: bool) -> int:
     # 1) Paris suspects : gros achats sur des issues improbables
     trades, feed = pm.recent_large_trades(since, config.MIN_TRADE_CASH)
     stats["trades"] = len(trades)
-    print(f"Flux : {feed['rows']} trades lus sur {feed['pages']} page(s), plus ancien "
-          f"{hhmm(feed['oldest']) if feed['oldest'] else '—'}{' (TRONQUÉ)' if feed['truncated'] else ''}")
-    print(f"::notice title=Champs v2::{', '.join(feed['sample_keys'])}")
+    feed_msg = (f"{feed['rows']} trades lus sur {feed['pages']} page(s), plus ancien "
+                f"{hhmm(feed['oldest']) if feed['oldest'] else '—'}{' (TRONQUÉ)' if feed['truncated'] else ''}")
+    print(f"::notice title=Flux::{feed_msg}")
+    if feed.get("error"):
+        print(f"::warning title=Flux interrompu::{feed['error']}")
     groups = [g for g in group_buys(trades)
               if g.cash >= config.MIN_GROUP_CASH and g.avg_price <= config.MAX_PRICE]
     stats["groups"] = len(groups)

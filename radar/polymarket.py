@@ -20,7 +20,7 @@ def get(base: str, path: str, params: dict | None = None, retries: int = 3) -> A
     for attempt in range(retries):
         try:
             req = urllib.request.Request(url, headers={"User-Agent": UA, "Accept": "application/json"})
-            with urllib.request.urlopen(req, timeout=25) as resp:
+            with urllib.request.urlopen(req, timeout=45) as resp:
                 raw = resp.read()
             try:
                 return json.loads(raw)
@@ -32,7 +32,7 @@ def get(base: str, path: str, params: dict | None = None, retries: int = 3) -> A
                 continue
             body = e.read()[:300].decode("utf-8", "replace")
             raise RuntimeError(f"HTTP {e.code} sur {url} : {body}") from e
-        except urllib.error.URLError:
+        except (urllib.error.URLError, TimeoutError, ConnectionError):
             if attempt < retries - 1:
                 time.sleep(2 * (attempt + 1))
                 continue
@@ -89,8 +89,15 @@ def recent_large_trades(since_ts: int, min_cash: float, page: int = 1000, max_pa
     out: list[dict] = []
     cursor, pages, seen_rows, oldest = None, 0, 0, None
     sample_keys: list[str] = []
+    error = None
     for _ in range(max_pages):
-        res = get(DATA, "/v2/trades", {"limit": page, "cursor": cursor})
+        try:
+            res = get(DATA, "/v2/trades", {"limit": page, "cursor": cursor})
+        except Exception as e:  # une page qui échoue ne doit pas faire perdre les précédentes
+            if not out and pages == 0:
+                raise
+            error = f"{type(e).__name__}: {e}"[:300]
+            break
         rows, cursor = _rows(res)
         pages += 1
         if rows and not sample_keys:
@@ -108,7 +115,7 @@ def recent_large_trades(since_ts: int, min_cash: float, page: int = 1000, max_pa
         if stop or not cursor or not rows:
             break
     return out, {"pages": pages, "rows": seen_rows, "oldest": oldest, "sample_keys": sample_keys,
-                 "truncated": bool(cursor) and pages >= max_pages}
+                 "truncated": bool(cursor) and (pages >= max_pages or error is not None), "error": error}
 
 
 def market_by_condition(condition_id: str) -> dict | None:
