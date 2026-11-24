@@ -1,0 +1,170 @@
+"""Un passage du radar : python -m radar [--lookback 60] [--dry-run]."""
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import sys
+import time
+from datetime import datetime, timezone
+from pathlib import Path
+
+from . import config, notify
+from . import polymarket as pm
+from .scoring import fmt_usd, group_buys, is_news_topic, market_move, prelim_score, score_bet
+
+STATE = Path(__file__).resolve().parent.parent / "state"
+SEEN_FILE, ALERTS_FILE = STATE / "seen.json", STATE / "alerts.jsonl"
+
+
+def hhmm(ts: int) -> str:
+    return datetime.fromtimestamp(ts, timezone.utc).strftime("%d/%m %H:%M UTC")
+
+
+def load_seen() -> dict:
+    try:
+        return json.loads(SEEN_FILE.read_text())
+    except (OSError, ValueError):
+        return {}
+
+
+def save_seen(seen: dict, now: int) -> None:
+    STATE.mkdir(exist_ok=True)
+    keep = {k: v for k, v in seen.items() if now - v.get("ts", 0) < 7 * 86400}
+    SEEN_FILE.write_text(json.dumps(keep, indent=1, sort_keys=True) + "\n")
+
+
+def bet_message(g, score, why, market) -> str:
+    gain = g.payout - g.cash
+    who = g.pseudonym or g.wallet[:10]
+    window = hhmm(g.first_ts) if g.fills == 1 else f"{hhmm(g.first_ts)} → {hhmm(g.last_ts)}"
+    lines = [
+        f"🚨 Pari suspect — score {score}/100",
+        g.title,
+        f"Achat « {g.outcome} » : {g.shares:,.0f} parts à {g.avg_price:.3f} = {fmt_usd(g.cash)}".replace(",", " "),
+        f"Gain si ça tombe : +{fmt_usd(gain)} (×{g.payout / g.cash:.1f})",
+        f"Compte : {who} · {g.fills} ordre(s) · {window}",
+        "Pourquoi : " + ", ".join(why),
+        f"https://polymarket.com/event/{g.event_slug or g.slug}",
+        f"https://polymarket.com/profile/{g.wallet}",
+    ]
+    if g.tx:
+        lines.append(f"https://polygonscan.com/tx/{g.tx[0]}")
+    return "\n".join(lines)
+
+
+def move_message(m, d1h, outcome) -> str:
+    v24 = float(m.get("volume24hr") or 0)
+    ev = (m.get("events") or [{}])[0].get("slug") or m.get("slug", "")
+    return "\n".join([
+        f"📈 Mouvement brusque — {d1h:+.0%} en 1 h sur « {outcome} »",
+        m.get("question", ""),
+        f"Volume 24 h : {fmt_usd(v24)}",
+        f"https://polymarket.com/event/{ev}",
+    ])
+
+
+def run(lookback_min: int, dry_run: bool) -> int:
+    now = int(time.time())
+    since = now - lookback_min * 60
+    seen = load_seen()
+    alerts: list[dict] = []
+    stats = {"trades": 0, "groups": 0, "news_candidates": 0, "wallets_checked": 0, "markets_scanned": 0}
+
+    # 1) Paris suspects : gros achats sur des issues improbables
+    trades = pm.recent_large_trades(since, config.MIN_TRADE_CASH)
+    stats["trades"] = len(trades)
+    groups = [g for g in group_buys(trades)
+              if g.cash >= config.MIN_GROUP_CASH and g.avg_price <= config.MAX_PRICE]
+    stats["groups"] = len(groups)
+
+    market_cache: dict[str, dict | None] = {}
+    tag_cache: dict[str, set] = {}
+    candidates = []
+    for g in sorted(groups, key=prelim_score, reverse=True):
+        if g.event_slug not in tag_cache:
+            try:
+                tag_cache[g.event_slug] = pm.event_tags(g.event_slug)
+            except Exception:
+                tag_cache[g.event_slug] = set()
+        if is_news_topic(g.title, tag_cache[g.event_slug]):
+            candidates.append(g)
+    stats["news_candidates"] = len(candidates)
+
+    for g in candidates[: config.MAX_WALLET_LOOKUPS]:
+        prev = seen.get(g.key)
+        if prev and g.cash < prev.get("cash", 0) * config.REALERT_FACTOR:
+            continue
+        if g.condition_id not in market_cache:
+            try:
+                market_cache[g.condition_id] = pm.market_by_condition(g.condition_id)
+            except Exception:
+                market_cache[g.condition_id] = None
+        wallet = pm.wallet_profile(g.wallet, now)
+        stats["wallets_checked"] += 1
+        score, why = score_bet(g, wallet, market_cache[g.condition_id])
+        print(f"  {score:3d}  {fmt_usd(g.cash):>10}  @{g.avg_price:.3f}  {g.title[:70]}")
+        if score >= config.MIN_SCORE:
+            text = bet_message(g, score, why, market_cache[g.condition_id])
+            alerts.append({"kind": "bet", "key": g.key, "score": score, "cash": round(g.cash, 2),
+                           "price": round(g.avg_price, 4), "title": g.title, "outcome": g.outcome,
+                           "wallet": g.wallet, "condition_id": g.condition_id, "why": why,
+                           "first_ts": g.first_ts, "last_ts": g.last_ts, "tx": g.tx[:10], "text": text})
+
+    # 2) Mouvements brusques de prix sur les marchés d'actualité les plus liquides
+    try:
+        markets = pm.top_markets(500)
+    except Exception as e:
+        print(f"top_markets KO : {e}", file=sys.stderr)
+        markets = []
+    stats["markets_scanned"] = len(markets)
+    for m in markets:
+        mv = market_move(m)
+        if not mv:
+            continue
+        ev = (m.get("events") or [{}])[0]
+        tags = {str(t.get("slug", "")).lower() for t in (ev.get("tags") or [])}
+        if not is_news_topic(m.get("question", ""), tags):
+            continue
+        key = f"move:{m.get('conditionId')}"
+        if key in seen and now - seen[key]["ts"] < config.MOVE_DEDUP_HOURS * 3600:
+            continue
+        d1h, outcome = mv
+        alerts.append({"kind": "move", "key": key, "delta_1h": d1h, "title": m.get("question"),
+                       "condition_id": m.get("conditionId"), "volume24hr": m.get("volume24hr"),
+                       "text": move_message(m, d1h, outcome)})
+
+    # 3) Envoi + mémoire
+    for a in alerts:
+        print("\n" + a["text"])
+        channels = [] if dry_run else notify.send(a["text"])
+        a["sent_to"], a["ts"] = channels, now
+        seen[a["key"]] = {"ts": now, "cash": a.get("cash", 0)}
+    if not dry_run:
+        save_seen(seen, now)
+        if alerts:
+            with ALERTS_FILE.open("a") as f:
+                for a in alerts:
+                    f.write(json.dumps({k: v for k, v in a.items() if k != "text"}, ensure_ascii=False) + "\n")
+
+    summary = (f"Fenêtre {lookback_min} min · {stats['trades']} ordres ≥ {fmt_usd(config.MIN_TRADE_CASH)} · "
+               f"{stats['groups']} paris sur issues improbables · {stats['news_candidates']} sur l'actualité · "
+               f"{stats['wallets_checked']} comptes examinés · {stats['markets_scanned']} marchés surveillés · "
+               f"**{len(alerts)} alerte(s)**")
+    print("\n" + summary)
+    if os.environ.get("GITHUB_STEP_SUMMARY"):
+        with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as f:
+            f.write(summary + "\n\n" + "\n\n".join("```\n" + a["text"] + "\n```" for a in alerts) + "\n")
+    return 0
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--lookback", type=int, default=config.LOOKBACK_MIN, help="minutes à relire")
+    ap.add_argument("--dry-run", action="store_true", help="n'envoie rien et ne touche pas à state/")
+    args = ap.parse_args()
+    return run(args.lookback, args.dry_run)
+
+
+if __name__ == "__main__":
+    sys.exit(main())
