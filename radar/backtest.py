@@ -63,6 +63,23 @@ def wallets_in_market(cid: str, prefix: str, suffix: str, log: list[str], max_pa
                                  "total_pnl": pm._pick(r, "total_pnl"), "title": pm._pick(r, "title")})
             if not cursor or not rows:
                 break
+    if hits:
+        return hits
+    # Les positions d'un compte supprimé n'apparaissent plus : on cherche alors dans les trades du marché
+    cursor, seen = None, set()
+    for _ in range(max_pages * 20):
+        try:
+            rows, cursor = pm._rows(pm.get(pm.DATA, "/v2/trades", {"condition": cid, "limit": 1000, "cursor": cursor}))
+        except Exception as e:
+            log.append(f"  - trades KO : {e}")
+            break
+        for r in rows:
+            w = str(pm._pick(r, "proxy_wallet", "proxyWallet", default="")).lower()
+            if w.startswith(prefix.lower()) and w.endswith(suffix.lower()) and w not in seen:
+                seen.add(w)
+                hits.append({"wallet": w, "status": "trades", "realized_pnl": None, "total_pnl": None, "title": None})
+        if not cursor or not rows:
+            break
     return hits
 
 
