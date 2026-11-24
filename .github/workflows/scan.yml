@@ -8,6 +8,9 @@ on:
       lookback:
         description: "Minutes à relire"
         default: "60"
+      min_score:
+        description: "Seuil d'alerte (60 en temps normal ; baisser pour tester)"
+        default: "60"
       dry_run:
         description: "Test : n'envoie aucune alerte"
         type: boolean
@@ -37,6 +40,7 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          RADAR_MIN_SCORE: ${{ inputs.min_score || '60' }}
         run: python -m radar --lookback "${{ inputs.lookback || 60 }}" ${{ inputs.dry_run && '--dry-run' || '' }}
       - name: Enregistrer l'état
         if: ${{ !inputs.dry_run }}
