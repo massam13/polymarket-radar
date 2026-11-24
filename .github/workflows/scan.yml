@@ -2,7 +2,7 @@ name: Scan Polymarket
 
 on:
   schedule:
-    - cron: "*/15 * * * *"   # GitHub peut décaler de quelques minutes ; la fenêtre de 60 min absorbe les retards
+    - cron: "7,22,37,52 * * * *"   # décalé des heures pile, recommandé par GitHub ; la fenêtre de 60 min absorbe les retards
   workflow_dispatch:
     inputs:
       lookback:
