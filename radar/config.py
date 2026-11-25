@@ -25,6 +25,10 @@ REALERT_FACTOR = _num("REALERT_FACTOR", 2.0)       # ré-alerte si la mise a ét
 LOG_MIN_SCORE = _num("LOG_MIN_SCORE", 30)          # paris notés à partir de 30 gardés dans state/candidates.jsonl
 CONTEXT_MIN_SCORE = _num("CONTEXT_MIN_SCORE", 45)  # au-dessus, on regarde la cote d'avant et les autres acheteurs
 
+# --- Rapport horaire (paris notés sous le seuil d'alerte, avec ce qui leur a manqué) ---
+REPORT_EVERY_MIN = _num("REPORT_EVERY_MIN", 60)    # 0 pour couper le rapport
+REPORT_EMPTY = _num("REPORT_EMPTY", 0) > 0         # 1 pour envoyer aussi « rien à signaler »
+
 # --- Cote avant le pari (un initié achète avant que le marché bouge) ---
 RUNUP_HOURS = _num("RUNUP_HOURS", 24)
 RUNUP_STRONG = (0.05, 1.5, -15)    # +5 pts et x1,5 en 24 h avant le 1er achat : -15

@@ -209,62 +209,101 @@ def crowd_points(n_new: int | None) -> tuple[int, str | None]:
     return int(pts), what
 
 
-def score_bet(g: BuyGroup, wallet: dict, market: dict | None, theme_cash: float | None = None,
-              context: dict | None = None) -> tuple[int, list[str]]:
-    pts, why = 0, []
+def score_parts(g: BuyGroup, wallet: dict, market: dict | None, theme_cash: float | None = None,
+                context: dict | None = None) -> list[dict]:
+    """Détail du score, critère par critère : points obtenus, maximum, raison affichée (why) et explication (note)."""
+    parts: list[dict] = []
+
+    def add(k: str, pts: int, mx: int, why: str | None, note: str) -> None:
+        parts.append({"k": k, "pts": int(pts), "max": mx, "why": why if pts else None, "note": note})
 
     lp = _longshot_pts(g.avg_price)
-    if lp:
-        pts += lp
-        why.append(f"issue jugée improbable ({g.avg_price:.1%})")
+    add("cote", lp, 30, f"issue jugée improbable ({g.avg_price:.1%})", f"issue à {g.avg_price:.1%}")
 
     cash = max(g.cash, theme_cash or 0)
     sp = _size_pts(cash)
-    if sp:
-        pts += sp
-        why.append(f"mise de {fmt_usd(g.cash)}" if cash <= g.cash + 1
-                   else f"{fmt_usd(cash)} misés sur ce sujet en 1 h")
+    add("mise", sp, 30, f"mise de {fmt_usd(g.cash)}" if cash <= g.cash + 1 else f"{fmt_usd(cash)} misés sur ce sujet en 1 h",
+        f"{fmt_usd(cash)} misés")
 
+    busy = bool(wallet.get("busy"))
+    busy_note = "compte très actif (plus de 1 000 opérations)"
     age = wallet.get("age_days")
     if age is not None:
         ap = _age_pts(age)
-        if ap:
-            pts += ap
-            why.append(f"compte créé il y a {age * 24:.0f} h" if age < 2 else f"compte de {age:.0f} j")
+        add("âge", ap, 20, f"compte créé il y a {age * 24:.0f} h" if age < 2 else f"compte de {age:.0f} j",
+            f"compte de {age:.0f} j")
+    else:
+        add("âge", 0, 20, None, busy_note if busy else "historique du compte illisible (API)")
 
     # Concentration pondérée par l'argent : quelques petits paris « leurres » ailleurs ne diluent plus le signal
     vol = wallet.get("volume_by_market") or {}
     total = sum(vol.values())
-    if total > 0 and not wallet.get("busy"):
+    if total > 0 and not busy:
         theme_of = wallet.get("theme_of") or {}
         mine = theme_of.get(g.condition_id)
         same = (sum(v for c, v in vol.items() if theme_of.get(c) == mine) if mine is not None
                 else vol.get(g.condition_id, 0))
         share = min(same / total, 1.0)
         cp = 15 if share >= 0.9 else 10 if share >= 0.75 else 5 if share >= 0.5 else 0
-        if cp:
-            pts += cp
-            n = wallet.get("markets_traded") or len(vol)
-            why.append("aucun autre marché tradé" if n <= 1 else f"{share:.0%} de son argent sur ce sujet ({n} marchés tradés)")
+        n = wallet.get("markets_traded") or len(vol)
+        detail = "aucun autre marché tradé" if n <= 1 else f"{share:.0%} de son argent sur ce sujet ({n} marchés tradés)"
+        add("concentration", cp, 15, detail, detail)
+    else:
+        add("concentration", 0, 15, None, busy_note if busy else "historique du compte illisible (API)")
 
-    if market:
-        v24 = float(market.get("volume24hr") or 0)
-        if v24 > 0:
-            s = g.cash / v24
-            if s >= 0.5:
-                pts += 10; why.append(f"{s:.0%} du volume 24 h du marché")
-            elif s >= 0.2:
-                pts += 6; why.append(f"{s:.0%} du volume 24 h du marché")
+    v24 = float((market or {}).get("volume24hr") or 0)
+    if v24 > 0:
+        s = g.cash / v24
+        vp = 10 if s >= 0.5 else 6 if s >= 0.2 else 0
+        add("volume", vp, 10, f"{s:.0%} du volume 24 h du marché", f"{s:.0%} du volume 24 h du marché")
+    else:
+        add("volume", 0, 10, None, "volume 24 h du marché inconnu")
 
-    if g.fills >= 3:
-        pts += 5; why.append(f"{g.fills} ordres successifs")
+    add("ordres", 5 if g.fills >= 3 else 0, 5, f"{g.fills} ordres successifs",
+        f"{g.fills} ordre(s)" if g.fills < 3 else f"{g.fills} ordres successifs")
 
     if context:
-        for p, w in (runup_points(context.get("price")), crowd_points(context.get("crowd_new"))):
-            if p:
-                pts += p; why.append(w)
+        rp, rw = runup_points(context.get("price"))
+        if context.get("price") and context["price"].get("ref") is not None:
+            add("cote d'avant", rp, int(config.STABLE_PTS), rw, rw or "cote en légère hausse avant le pari")
+        else:
+            add("cote d'avant", 0, int(config.STABLE_PTS), None, "historique de cote indisponible")
+        cp_, cw = crowd_points(context.get("crowd_new"))
+        if config.CROWD_PTS:
+            add("autres comptes", cp_, int(config.CROWD_PTS), cw, cw or "aucun autre compte neuf")
+    return parts
 
-    return max(0, min(pts, 100)), why
+
+def score_bet(g: BuyGroup, wallet: dict, market: dict | None, theme_cash: float | None = None,
+              context: dict | None = None) -> tuple[int, list[str]]:
+    parts = score_parts(g, wallet, market, theme_cash, context)
+    pts = sum(p["pts"] for p in parts)
+    return max(0, min(pts, 100)), [p["why"] for p in parts if p["why"]]
+
+
+def missed_reasons(parts: list[dict], context_checked: bool) -> list[str]:
+    """Ce qui a manqué pour atteindre le seuil, du plus coûteux au moins coûteux.
+    Un même motif (ex. compte très actif) qui coûte plusieurs critères n'est cité qu'une fois."""
+    groups: dict[str, list[dict]] = {}
+    for p in parts:
+        if p["pts"] < p["max"]:
+            groups.setdefault(p["note"], []).append(p)
+    rows = []
+    for note, ps in groups.items():
+        pts, mx = sum(p["pts"] for p in ps), sum(p["max"] for p in ps)
+        if len(ps) > 1:
+            text = f"{note} : {' et '.join(p['k'] for p in ps)} non comptés ({pts}/{mx})"
+        elif ps[0]["pts"] < 0:
+            text = f"{note} ({pts})"
+        elif ps[0]["note"] in ("compte très actif (plus de 1 000 opérations)", "historique du compte illisible (API)"):
+            text = f"{note} : {ps[0]['k']} non compté ({pts}/{mx})"
+        else:
+            text = f"{note} ({pts}/{mx})"
+        rows.append((pts - mx, text))
+    out = [t for _, t in sorted(rows, key=lambda r: r[0])]
+    if not context_checked:
+        out.append(f"cote d'avant non vérifiée (seulement à partir de {config.CONTEXT_MIN_SCORE:.0f}/100)")
+    return out
 
 
 def market_move(m: dict) -> tuple[float, str] | None:

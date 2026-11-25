@@ -9,10 +9,10 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-from . import config, notify
+from . import config, notify, report
 from . import polymarket as pm
 from .scoring import (crowd_wallets, fmt_usd, group_buys, is_longshot, is_news_topic, price_context, is_same_day_market, market_move, move_drivers,
-                      prelim_score, score_bet, theme_burst, theme_clusters, theme_keys)
+                      prelim_score, score_bet, score_parts, theme_burst, theme_clusters, theme_keys)
 
 STATE = Path(__file__).resolve().parent.parent / "state"
 SEEN_FILE, ALERTS_FILE, CANDIDATES_FILE = STATE / "seen.json", STATE / "alerts.jsonl", STATE / "candidates.jsonl"
@@ -212,6 +212,7 @@ def run(lookback_min: int, dry_run: bool) -> int:
         if score >= config.CONTEXT_MIN_SCORE:
             ctx = bet_context(g, market, profiles, now)
             score, why = score_bet(g, wallet, market, burst, ctx)
+        parts = score_parts(g, wallet, market, burst, ctx)
         print(f"  {score:3d}  {fmt_usd(g.cash):>10}  @{g.avg_price:.3f}  {g.title[:70]}")
         scored.append((score, g.cash, g.avg_price, g.title))
         log_key = "log:" + g.key
@@ -223,7 +224,9 @@ def run(lookback_min: int, dry_run: bool) -> int:
                                    "event_slug": g.event_slug, "first_ts": g.first_ts, "last_ts": g.last_ts,
                                    "age_days": wallet.get("age_days"), "price_ref": pc.get("ref"),
                                    "price_before": pc.get("before"), "crowd_new": (ctx or {}).get("crowd_new"),
-                                   "why": why})
+                                   "why": why, "name": g.pseudonym, "fills": g.fills, "busy": wallet.get("busy"),
+                                   "markets_traded": wallet.get("markets_traded"), "context_checked": ctx is not None,
+                                   "parts": [{k: p[k] for k in ("k", "pts", "max", "note")} for p in parts]})
             seen[log_key] = {"ts": now, "cash": g.cash}
         if score >= config.MIN_SCORE:
             text = bet_message(g, score, why, market, now, ctx)
@@ -298,6 +301,22 @@ def run(lookback_min: int, dry_run: bool) -> int:
                 for a in alerts:
                     f.write(json.dumps({k: v for k, v in a.items() if k != "text"}, ensure_ascii=False) + "\n")
 
+    # 4) Rapport horaire des paris sous le seuil
+    last = seen.get("report:hourly", {}).get("ts", 0)
+    if config.REPORT_EVERY_MIN and now - last >= (config.REPORT_EVERY_MIN - 5) * 60 and not dry_run:
+        start = max(last, now - int(config.REPORT_EVERY_MIN * 60) - 900)
+        logged = report.load_jsonl(CANDIDATES_FILE)
+        msgs = report.build(logged, report.load_jsonl(ALERTS_FILE), start, now)
+        for text in msgs:
+            print("\n" + text)
+            notify.send(text)
+        print(f"::notice title=Rapport horaire::{len(report.pick(logged, start, now))} pari(s) entre 30 et 59 "
+              f"depuis {report.paris(start)} (heure de Paris)")
+        seen["report:hourly"] = {"ts": now}
+        save_seen(seen, now)
+    elif dry_run and candidates_log:  # test : aperçu du rapport pour les paris de ce passage
+        print("\n" + "\n\n".join(report.build(candidates_log, [], now - 1, now)))
+
     summary = (f"Fenêtre {lookback_min} min · {stats['trades']} ordres · "
                f"{stats['groups']} paris sur issues improbables · {stats['news_candidates']} sur l'actualité · "
                f"{stats['wallets_checked']} comptes examinés · {stats['markets_scanned']} marchés surveillés · "
@@ -313,7 +332,13 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--lookback", type=int, default=config.LOOKBACK_MIN, help="minutes à relire")
     ap.add_argument("--dry-run", action="store_true", help="n'envoie rien et ne touche pas à state/")
+    ap.add_argument("--report", type=int, metavar="MIN", help="affiche le rapport des MIN dernières minutes, sans scanner")
     args = ap.parse_args()
+    if args.report:
+        now = int(time.time())
+        msgs = report.build(report.load_jsonl(CANDIDATES_FILE), report.load_jsonl(ALERTS_FILE), now - args.report * 60, now)
+        print("\n\n".join(msgs) or "Rien à signaler.")
+        return 0
     try:
         return run(args.lookback, args.dry_run)
     except Exception as e:

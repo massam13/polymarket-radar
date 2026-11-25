@@ -30,6 +30,8 @@ L'alerte indique aussi la cote 24 h avant, et combien d'autres comptes neufs ont
 affaires testées, ce n'était pas plus fréquent que sur les marchés populaires).
 Tous les paris notés à partir de 30 sont gardés dans `state/candidates.jsonl`, pour mesurer plus tard lesquels ont précédé une annonce.
 
+**Rapport horaire.** Une fois par heure, le radar envoie sur Telegram les paris notés entre 30 et 59 depuis le rapport précédent : marché, mise, cote, profil du compte, détail des points critère par critère et ce qui a manqué pour l'alerte (ex. « compte très actif (plus de 1 000 opérations), non compté »). Rien n'est envoyé pour une heure vide (`RADAR_REPORT_EMPTY=1` pour recevoir quand même « rien à signaler », `RADAR_REPORT_EVERY_MIN=0` pour couper). Aperçu local : `python -m radar --report 120`.
+
 Rejoué sur 20 affaires connues (Iran, Biden, Maduro…), ce score repère 10 des 16 comptes rejouables, souvent plusieurs jours avant les faits.
 
 **📈 Mouvement brusque** : la proba d'un marché d'actualité bouge de ≥ 20 points en 1 h avec ≥ 100 k$ de volume 24 h
