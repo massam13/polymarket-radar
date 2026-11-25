@@ -124,22 +124,43 @@ def prelim_score(g: BuyGroup) -> int:
 
 
 def _longshot_pts(p: float) -> int:
-    if p <= 0.05: return 30
-    if p <= 0.10: return 25
-    if p <= 0.20: return 15
-    if p <= 0.35: return 5
-    return 0
+    """Continu : 30 pts à 5 % ou moins, 0 pt à 40 %."""
+    if p <= 0.05:
+        return 30
+    if p >= 0.40:
+        return 0
+    return round(30 * (0.40 - p) / 0.35)
 
 
 def _size_pts(cash: float) -> int:
-    if cash >= 25000: return 25
-    if cash >= 10000: return 20
-    if cash >= 3000: return 12
-    if cash >= 1000: return 6
+    for lim, pts in ((50000, 30), (25000, 25), (10000, 20), (3000, 12), (1000, 6)):
+        if cash >= lim:
+            return pts
     return 0
 
 
-def score_bet(g: BuyGroup, wallet: dict, market: dict | None) -> tuple[int, list[str]]:
+def _age_pts(age: float) -> int:
+    for lim, pts in ((2, 20), (7, 15), (14, 12), (30, 8), (90, 3)):
+        if age < lim:
+            return pts
+    return 0
+
+
+def theme_burst(g: BuyGroup, groups: list[BuyGroup], theme_of: dict[str, int]) -> float:
+    """Mises cumulées du même compte sur le même sujet dans la fenêtre (ex. « frappes avant le 20 / le 28 / le 15 mars »)."""
+    mine = theme_of.get(g.condition_id)
+    total = 0.0
+    for x in groups:
+        if x.wallet != g.wallet or x.avg_price > config.MAX_PRICE:
+            continue
+        same = (theme_of.get(x.condition_id) == mine) if mine is not None else (
+            x.condition_id == g.condition_id or (g.event_slug and x.event_slug == g.event_slug))
+        if same:
+            total += x.cash
+    return max(total, g.cash)
+
+
+def score_bet(g: BuyGroup, wallet: dict, market: dict | None, theme_cash: float | None = None) -> tuple[int, list[str]]:
     pts, why = 0, []
 
     lp = _longshot_pts(g.avg_price)
@@ -147,49 +168,43 @@ def score_bet(g: BuyGroup, wallet: dict, market: dict | None) -> tuple[int, list
         pts += lp
         why.append(f"issue jugée improbable ({g.avg_price:.1%})")
 
-    sp = _size_pts(g.cash)
+    cash = max(g.cash, theme_cash or 0)
+    sp = _size_pts(cash)
     if sp:
         pts += sp
-        why.append(f"mise de {fmt_usd(g.cash)}")
+        why.append(f"mise de {fmt_usd(g.cash)}" if cash <= g.cash + 1
+                   else f"{fmt_usd(cash)} misés sur ce sujet en 1 h")
 
     age = wallet.get("age_days")
     if age is not None:
-        if age < 2:
-            pts += 20; why.append(f"compte créé il y a {age * 24:.0f} h")
-        elif age < 7:
-            pts += 15; why.append(f"compte créé il y a {age:.0f} j")
-        elif age < 30:
-            pts += 7; why.append(f"compte récent ({age:.0f} j)")
+        ap = _age_pts(age)
+        if ap:
+            pts += ap
+            why.append(f"compte créé il y a {age * 24:.0f} h" if age < 2 else f"compte de {age:.0f} j")
 
-    n = wallet.get("markets_traded")
-    theme_of = wallet.get("theme_of") or {}
-    nt = len(set(theme_of.values())) if theme_of else n  # sujets distincts (marchés liés regroupés)
-    if n is not None and nt is not None and not wallet.get("busy"):
-        if nt <= 1:
-            pts += 15
-            why.append("aucun autre marché tradé" if n <= 1 else f"un seul sujet tradé ({n} marchés liés)")
-        elif nt <= 3:
-            pts += 10; why.append(f"seulement {nt} sujets tradés")
-        elif nt <= 10:
-            pts += 4
+    # Concentration pondérée par l'argent : quelques petits paris « leurres » ailleurs ne diluent plus le signal
     vol = wallet.get("volume_by_market") or {}
     total = sum(vol.values())
-    if theme_of and g.condition_id in theme_of:
-        mine = theme_of[g.condition_id]
-        same = sum(v for c, v in vol.items() if theme_of.get(c) == mine)
-    else:
-        same = vol.get(g.condition_id, 0)
-    if total > 0 and same / total >= 0.8 and (n or 0) > 1:
-        pts += 5; why.append("80 %+ de son volume sur ce sujet")
+    if total > 0 and not wallet.get("busy"):
+        theme_of = wallet.get("theme_of") or {}
+        mine = theme_of.get(g.condition_id)
+        same = (sum(v for c, v in vol.items() if theme_of.get(c) == mine) if mine is not None
+                else vol.get(g.condition_id, 0))
+        share = min(same / total, 1.0)
+        cp = 15 if share >= 0.9 else 10 if share >= 0.75 else 5 if share >= 0.5 else 0
+        if cp:
+            pts += cp
+            n = wallet.get("markets_traded") or len(vol)
+            why.append("aucun autre marché tradé" if n <= 1 else f"{share:.0%} de son argent sur ce sujet ({n} marchés tradés)")
 
     if market:
         v24 = float(market.get("volume24hr") or 0)
         if v24 > 0:
-            share = g.cash / v24
-            if share >= 0.5:
-                pts += 10; why.append(f"{share:.0%} du volume 24 h du marché")
-            elif share >= 0.2:
-                pts += 6; why.append(f"{share:.0%} du volume 24 h du marché")
+            s = g.cash / v24
+            if s >= 0.5:
+                pts += 10; why.append(f"{s:.0%} du volume 24 h du marché")
+            elif s >= 0.2:
+                pts += 6; why.append(f"{s:.0%} du volume 24 h du marché")
 
     if g.fills >= 3:
         pts += 5; why.append(f"{g.fills} ordres successifs")

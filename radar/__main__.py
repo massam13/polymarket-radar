@@ -12,7 +12,7 @@ from pathlib import Path
 from . import config, notify
 from . import polymarket as pm
 from .scoring import (fmt_usd, group_buys, is_news_topic, is_same_day_market, market_move, move_drivers,
-                      prelim_score, score_bet, theme_clusters, theme_keys)
+                      prelim_score, score_bet, theme_burst, theme_clusters, theme_keys)
 
 STATE = Path(__file__).resolve().parent.parent / "state"
 SEEN_FILE, ALERTS_FILE = STATE / "seen.json", STATE / "alerts.jsonl"
@@ -77,15 +77,18 @@ def move_message(m, d1h, outcome, drivers=None, top_profile=None) -> str:
     return "\n".join(lines)
 
 
-def add_themes(wallet: dict, market_cache: dict, tag_cache: dict, max_markets: int = 12) -> None:
-    """Regroupe les marchés tradés par le compte en sujets (ex. 4 marchés « Venezuela » = 1 sujet)."""
+def add_themes(wallet: dict, market_cache: dict, tag_cache: dict, max_markets: int = 100) -> None:
+    """Regroupe les marchés tradés par le compte en sujets (ex. 4 marchés « Venezuela » = 1 sujet).
+    Au-delà de 12 marchés, pas d'appel réseau par marché ; les thèmes d'événement restent récupérés (en cache,
+    dans la limite de MAX_TAG_LOOKUPS par scan)."""
     info = wallet.get("market_info") or {}
     if wallet.get("busy") or not info or len(info) > max_markets:
         return
+    light = len(info) > 12
     keys = {}
     for cid, mi in info.items():
         title, ev_slug = mi.get("title") or "", mi.get("event_slug") or ""
-        if not title or not ev_slug:
+        if (not title or not ev_slug) and not light:
             if cid not in market_cache:
                 try:
                     market_cache[cid] = pm.market_by_condition(cid)
@@ -94,12 +97,12 @@ def add_themes(wallet: dict, market_cache: dict, tag_cache: dict, max_markets: i
             m = market_cache[cid] or {}
             title = title or m.get("question", "")
             ev_slug = ev_slug or ((m.get("events") or [{}])[0].get("slug") or "")
-        if ev_slug not in tag_cache:
+        if ev_slug not in tag_cache and len(tag_cache) < config.MAX_TAG_LOOKUPS:
             try:
                 tag_cache[ev_slug] = pm.event_tags(ev_slug) if ev_slug else set()
             except Exception:
                 tag_cache[ev_slug] = set()
-        keys[cid] = theme_keys(title, tag_cache[ev_slug]) | ({f"event:{ev_slug}"} if ev_slug else set())
+        keys[cid] = theme_keys(title, tag_cache.get(ev_slug, set())) | ({f"event:{ev_slug}"} if ev_slug else set())
     wallet["theme_of"] = theme_clusters(keys)
 
 
@@ -119,8 +122,8 @@ def run(lookback_min: int, dry_run: bool) -> int:
     print(f"::notice title=Flux::{feed_msg}")
     if feed.get("error"):
         print(f"::warning title=Flux interrompu::{feed['error']}")
-    groups = [g for g in group_buys(trades)
-              if g.cash >= config.MIN_GROUP_CASH and g.avg_price <= config.MAX_PRICE]
+    all_groups = group_buys(trades)
+    groups = [g for g in all_groups if g.cash >= config.MIN_GROUP_CASH and g.avg_price <= config.MAX_PRICE]
     stats["groups"] = len(groups)
 
     # Le flux v2 ne donne plus slug / event / tags : on complète via Gamma (en cache, nombre de lookups borné)
@@ -153,22 +156,37 @@ def run(lookback_min: int, dry_run: bool) -> int:
     stats["news_candidates"] = len(candidates)
 
     scored: list[tuple] = []
+    profiles: dict[str, dict] = {}
+    best_by_theme: dict[tuple, dict] = {}  # une seule alerte par compte et par sujet dans un même scan
     for g in candidates[: config.MAX_WALLET_LOOKUPS]:
         prev = seen.get(g.key)
         if prev and g.cash < prev.get("cash", 0) * config.REALERT_FACTOR:
             continue
-        wallet = pm.wallet_profile(g.wallet, now)
-        add_themes(wallet, market_cache, tag_cache)
-        stats["wallets_checked"] += 1
-        score, why = score_bet(g, wallet, market_cache[g.condition_id])
+        if g.wallet not in profiles:
+            profiles[g.wallet] = pm.wallet_profile(g.wallet, now)
+            add_themes(profiles[g.wallet], market_cache, tag_cache)
+            stats["wallets_checked"] += 1
+        wallet = profiles[g.wallet]
+        theme_of = wallet.get("theme_of") or {}
+        burst = theme_burst(g, all_groups, theme_of)
+        score, why = score_bet(g, wallet, market_cache[g.condition_id], burst)
         print(f"  {score:3d}  {fmt_usd(g.cash):>10}  @{g.avg_price:.3f}  {g.title[:70]}")
         scored.append((score, g.cash, g.avg_price, g.title))
         if score >= config.MIN_SCORE:
             text = bet_message(g, score, why, market_cache[g.condition_id])
+            theme = (g.wallet, theme_of.get(g.condition_id, g.event_slug or g.condition_id))
+            other = best_by_theme.get(theme)
+            if other and other["score"] >= score:
+                seen[g.key] = {"ts": now, "cash": g.cash}  # couvert par l'alerte du même sujet
+                continue
+            if other:
+                alerts.remove(other)
+                seen[other["key"]] = {"ts": now, "cash": other["cash"]}
             alerts.append({"kind": "bet", "key": g.key, "score": score, "cash": round(g.cash, 2),
                            "price": round(g.avg_price, 4), "title": g.title, "outcome": g.outcome,
                            "wallet": g.wallet, "condition_id": g.condition_id, "why": why,
                            "first_ts": g.first_ts, "last_ts": g.last_ts, "tx": g.tx[:10], "text": text})
+            best_by_theme[theme] = alerts[-1]
 
     top = sorted(scored, reverse=True)[:5]
     if top:

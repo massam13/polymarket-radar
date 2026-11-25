@@ -104,8 +104,34 @@ class TestSujets(unittest.TestCase):
         wallet = {"age_days": 3.5, "markets_traded": 2, "busy": False,
                   "volume_by_market": {"m1": 1323, "m4": 96}, "theme_of": {"m1": 0, "m4": 0}}
         score, why = score_bet(g, wallet, None)
-        self.assertGreaterEqual(score, 65, why)
-        self.assertIn("un seul sujet tradé (2 marchés liés)", why)
+        self.assertGreaterEqual(score, 60, why)
+        self.assertIn("100% de son argent sur ce sujet (2 marchés tradés)", why)
+
+    def test_paris_leurres_ne_diluent_pas(self):
+        # whopperlover : 10 k$ sur l'Iran + quelques petits paris sur 5 autres sujets
+        [g] = group_buys([trade(conditionId="iran", title="US strikes Iran by February 28, 2026?", size=80_000, price=0.13)])
+        vol = {"iran": 10_400, "groenland": 200, "taiwan": 150, "nobel": 100, "fed": 120, "oscars": 90}
+        wallet = {"age_days": 0.5, "markets_traded": 6, "busy": False, "volume_by_market": vol,
+                  "theme_of": {c: i for i, c in enumerate(vol)}}
+        score, why = score_bet(g, wallet, None)
+        self.assertGreaterEqual(score, 60, why)
+
+    def test_mises_reparties_sur_plusieurs_echeances(self):
+        from radar.scoring import fmt_usd, theme_burst
+        gs = group_buys([trade(conditionId=c, title=f"US strikes Iran by {d}?", size=30_000, price=0.12)
+                         for c, d in (("f20", "February 20"), ("f28", "February 28"), ("m15", "March 15"))])
+        theme_of = {"f20": 0, "f28": 0, "m15": 0, "autre": 1}
+        self.assertAlmostEqual(theme_burst(gs[0], gs, theme_of), 10_800)
+        wallet = {"age_days": 1.5, "markets_traded": 3, "busy": False,
+                  "volume_by_market": {"f20": 3600, "f28": 3600, "m15": 3600}, "theme_of": theme_of}
+        seul, _ = score_bet(gs[0], wallet, None)
+        cumul, why = score_bet(gs[0], wallet, None, theme_burst(gs[0], gs, theme_of))
+        self.assertGreater(cumul, seul)
+        self.assertIn(f"{fmt_usd(10_800)} misés sur ce sujet en 1 h", why)
+
+    def test_courbe_continue_de_probabilite(self):
+        from radar.scoring import _longshot_pts
+        self.assertEqual([_longshot_pts(p) for p in (0.03, 0.05, 0.30, 0.40, 0.6)], [30, 30, 9, 0, 0])
 
 
 class TestApiV2(unittest.TestCase):
