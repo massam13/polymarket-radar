@@ -237,7 +237,8 @@ def score_parts(g: BuyGroup, wallet: dict, market: dict | None, theme_cash: floa
     if age is not None:
         ap = _age_pts(age)
         add("âge", ap, 20, f"compte créé il y a {age * 24:.0f} h" if age < 2 else f"compte de {age:.0f} j",
-            f"compte ancien (créé il y a {_days(age)})" if age >= 90 else f"compte pas tout neuf ({age:.0f} j)")
+            f"compte ancien (créé il y a {_days(age)})" if age >= 90 else f"compte pas tout neuf ({age:.0f} j)" if age >= 30
+            else f"compte récent ({age:.0f} j)")
     else:
         add("âge", 0, 20, None, busy_note if busy else "historique du compte illisible (API)")
 
