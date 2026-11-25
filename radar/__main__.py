@@ -11,7 +11,7 @@ from pathlib import Path
 
 from . import config, notify
 from . import polymarket as pm
-from .scoring import (fmt_usd, group_buys, is_news_topic, is_same_day_market, market_move, move_drivers,
+from .scoring import (fmt_usd, group_buys, is_longshot, is_news_topic, is_same_day_market, market_move, move_drivers,
                       prelim_score, score_bet, theme_burst, theme_clusters, theme_keys)
 
 STATE = Path(__file__).resolve().parent.parent / "state"
@@ -123,7 +123,7 @@ def run(lookback_min: int, dry_run: bool) -> int:
     if feed.get("error"):
         print(f"::warning title=Flux interrompu::{feed['error']}")
     all_groups = group_buys(trades)
-    groups = [g for g in all_groups if g.cash >= config.MIN_GROUP_CASH and g.avg_price <= config.MAX_PRICE]
+    groups = [g for g in all_groups if g.cash >= config.MIN_GROUP_CASH and is_longshot(g.avg_price)]
     stats["groups"] = len(groups)
 
     # Le flux v2 ne donne plus slug / event / tags : on complète via Gamma (en cache, nombre de lookups borné)

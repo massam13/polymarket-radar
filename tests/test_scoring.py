@@ -129,6 +129,13 @@ class TestSujets(unittest.TestCase):
         self.assertGreater(cumul, seul)
         self.assertIn(f"{fmt_usd(10_800)} misés sur ce sujet en 1 h", why)
 
+    def test_marche_deja_joue_ignore(self):
+        from radar.scoring import is_longshot
+        self.assertFalse(is_longshot(0.001))  # « Non » à 0,1 % sur un marché à 99,9 % : loterie
+        self.assertTrue(is_longshot(0.01))
+        self.assertTrue(is_longshot(0.065))   # Huang
+        self.assertFalse(is_longshot(0.5))
+
     def test_courbe_continue_de_probabilite(self):
         from radar.scoring import _longshot_pts
         self.assertEqual([_longshot_pts(p) for p in (0.03, 0.05, 0.30, 0.40, 0.6)], [30, 30, 9, 0, 0])

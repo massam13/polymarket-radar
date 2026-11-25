@@ -7,7 +7,7 @@ Lecture seule des API publiques Polymarket (`data-api`, `gamma-api`), aucune cl�
 
 ## Ce qui déclenche une alerte
 
-**🚨 Pari suspect** : un compte achète une issue jugée improbable (≤ 35 %) pour ≥ 1 000 $ sur un sujet d'actualité
+**🚨 Pari suspect** : un compte achète une issue jugée improbable (entre 1 % et 35 % : en dessous, le marché est déjà joué) pour ≥ 1 000 $ sur un sujet d'actualité
 (sport, cours crypto, météo… exclus). Score sur 100, alerte à partir de 60 :
 
 | Signal | Points |

@@ -39,6 +39,11 @@ class BuyGroup:
         return f"bet:{self.wallet}:{self.condition_id}:{self.outcome_index}"
 
 
+def is_longshot(price: float) -> bool:
+    """Issue jugée improbable, sans être un marché déjà tranché (< 1 %)."""
+    return config.MIN_PRICE <= price <= config.MAX_PRICE
+
+
 def group_buys(trades: list[dict]) -> list[BuyGroup]:
     groups: dict[tuple, BuyGroup] = {}
     for t in trades:
@@ -151,7 +156,7 @@ def theme_burst(g: BuyGroup, groups: list[BuyGroup], theme_of: dict[str, int]) -
     mine = theme_of.get(g.condition_id)
     total = 0.0
     for x in groups:
-        if x.wallet != g.wallet or x.avg_price > config.MAX_PRICE:
+        if x.wallet != g.wallet or not is_longshot(x.avg_price):
             continue
         same = (theme_of.get(x.condition_id) == mine) if mine is not None else (
             x.condition_id == g.condition_id or (g.event_slug and x.event_slug == g.event_slug))

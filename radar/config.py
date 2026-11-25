@@ -19,6 +19,7 @@ MAX_TAG_LOOKUPS = int(_num("MAX_TAG_LOOKUPS", 400))  # thèmes d'événements r�
 # --- Paris suspects ---
 MIN_GROUP_CASH = _num("MIN_GROUP_CASH", 1000)      # mise cumulée minimale d'un compte sur une issue
 MAX_PRICE = _num("MAX_PRICE", 0.35)                # au-delà, l'issue n'est plus « improbable »
+MIN_PRICE = _num("MIN_PRICE", 0.01)                # en dessous, le marché est déjà joué : billet de loterie, pas un pari informé
 MIN_SCORE = _num("MIN_SCORE", 60)                  # seuil d'alerte (0-100)
 REALERT_FACTOR = _num("REALERT_FACTOR", 2.0)       # ré-alerte si la mise a été multipliée par 2 depuis
 
