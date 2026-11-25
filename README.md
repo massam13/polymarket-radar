@@ -5,6 +5,8 @@ Surveille Polymarket toutes les 15 minutes (GitHub Actions) et alerte sur les mo
 
 Lecture seule des API publiques Polymarket (`data-api`, `gamma-api`), aucune clé, aucun pari.
 
+**Ordres limités (makers).** Le flux public des trades n'enregistre que le *taker* de chaque échange : un compte qui achète avec des ordres limités y apparaît sous le nom de sa contrepartie (c'était le cas du compte du dossier NVIDIA). À chaque scan, le radar relit donc sur Polygon (accès RPC publics, ~0,5 s pour 100 transactions) les échanges où un maker a pu acheter une issue improbable pour ≥ 25 $, et ajoute ces achats au flux (`radar/chain.py`).
+
 ## Ce qui déclenche une alerte
 
 **🚨 Pari suspect** : un compte achète une issue jugée improbable (entre 1 % et 35 % : en dessous, le marché est déjà joué) pour ≥ 1 000 $ sur un sujet d'actualité

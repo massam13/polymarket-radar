@@ -15,6 +15,8 @@ MIN_TRADE_CASH = _num("MIN_TRADE_CASH", 0)         # pas de seuil par ordre : on
 MAX_WALLET_LOOKUPS = int(_num("MAX_WALLET_LOOKUPS", 40))
 MAX_MARKET_LOOKUPS = int(_num("MAX_MARKET_LOOKUPS", 120))
 MAX_TAG_LOOKUPS = int(_num("MAX_TAG_LOOKUPS", 400))  # thèmes d'événements récupérés par scan
+MAKER_MIN_CASH = _num("MAKER_MIN_CASH", 25)       # ordres « maker » relus sur Polygon si un maker a pu miser ≥ 25 $
+MAKER_MAX_TX = int(_num("MAKER_MAX_TX", 3000))     # transactions relues au plus par scan (100 par requête, ~0,5 s)
 
 # --- Paris suspects ---
 MIN_GROUP_CASH = _num("MIN_GROUP_CASH", 1000)      # mise cumulée minimale d'un compte sur une issue

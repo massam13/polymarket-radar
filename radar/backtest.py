@@ -150,8 +150,10 @@ def replay_context(g, scan: int, tapes: dict, price_cache: dict, seen_cache: dic
 
 
 def replay_scans(wallet: str, acts: list[dict], crowd: bool = True, tapes: dict | None = None,
-                 price_cache: dict | None = None, seen_cache: dict | None = None) -> tuple[list[dict], dict]:
+                 price_cache: dict | None = None, seen_cache: dict | None = None,
+                 visible_tx: set[str] | None = None) -> tuple[list[dict], dict]:
     """Rejoue des scans toutes les 15 min sur 60 min, avec l'état du compte à chaque instant.
+    visible_tx : si fourni, seuls les ordres de ces transactions sont visibles (ex. rejeu « takers seulement »).
     Fidèle au radar : ordres < MIN_TRADE_CASH invisibles, cote avant le pari et autres comptes neufs (si crowd), filtre « actualité », compte « actif » au-delà de 1000 événements,
     dédoublonnage (nouvelle alerte seulement si la mise double). Le poids dans le volume du marché n'est pas rejoué."""
     import bisect
@@ -186,7 +188,8 @@ def replay_scans(wallet: str, acts: list[dict], crowd: bool = True, tapes: dict 
         news[cid] = is_news_topic(t.get("title", ""), tag_cache[ev], None, ev or t.get("slug", ""))
         info["markets"][cid] = {"title": t.get("title"), "news": news[cid], "tags": sorted(tag_cache[ev])}
 
-    visible = [t for t in trades if t["size"] * t["price"] >= config.MIN_TRADE_CASH and news[t["conditionId"]]]
+    visible = [t for t in trades if t["size"] * t["price"] >= config.MIN_TRADE_CASH and news[t["conditionId"]]
+               and (visible_tx is None or t.get("transactionHash") in visible_tx)]  # ex. ordres taker seulement
     vis_ts = [t["timestamp"] for t in visible]
     tr_ts = [t["timestamp"] for t in trades]
     rows: list[dict] = []

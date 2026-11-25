@@ -9,7 +9,7 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-from . import config, notify, report
+from . import chain, config, notify, report
 from . import polymarket as pm
 from .scoring import (crowd_wallets, fmt_usd, group_buys, is_longshot, is_news_topic, price_context, is_same_day_market, market_move, move_drivers,
                       prelim_score, score_bet, score_parts, theme_burst, theme_clusters, theme_keys)
@@ -147,7 +147,7 @@ def run(lookback_min: int, dry_run: bool) -> int:
     since = now - lookback_min * 60
     seen = load_seen()
     alerts: list[dict] = []
-    stats = {"trades": 0, "groups": 0, "news_candidates": 0, "wallets_checked": 0, "markets_scanned": 0}
+    stats = {"trades": 0, "makers": 0, "groups": 0, "news_candidates": 0, "wallets_checked": 0, "markets_scanned": 0}
 
     # 1) Paris suspects : gros achats sur des issues improbables
     trades, feed = pm.recent_large_trades(since, config.MIN_TRADE_CASH,
@@ -158,6 +158,16 @@ def run(lookback_min: int, dry_run: bool) -> int:
     print(f"::notice title=Flux::{feed_msg}")
     if feed.get("error"):
         print(f"::warning title=Flux interrompu::{feed['error']}")
+    # Le flux ne montre que les takers : on relit sur Polygon les échanges où un maker a pu acheter une issue improbable
+    try:
+        makers, mk = chain.maker_trades(trades, lambda t: is_news_topic(t["title"], set(), None,
+                                                                       t.get("eventSlug") or t.get("slug")))
+        trades += makers
+        stats["makers"] = mk["fills"]
+        print(f"::notice title=Makers::{mk['read']}/{mk['tx']} transactions relues sur Polygon, "
+              f"{mk['fills']} achat(s) maker ajouté(s)")
+    except Exception as e:
+        print(f"::warning title=Makers KO::{type(e).__name__}: {e}"[:300])
     all_groups = group_buys(trades)
     groups = [g for g in all_groups if g.cash >= config.MIN_GROUP_CASH and is_longshot(g.avg_price)]
     stats["groups"] = len(groups)
@@ -176,6 +186,11 @@ def run(lookback_min: int, dry_run: bool) -> int:
                 market_cache[g.condition_id] = None
         m = market_cache[g.condition_id] or {}
         ev = (m.get("events") or [{}])[0]
+        if not g.outcome:  # achat maker sur l'issue opposée d'un marché qui n'est pas Oui/Non
+            outs = m.get("outcomes")
+            outs = json.loads(outs) if isinstance(outs, str) else outs
+            if outs and g.outcome_index < len(outs):
+                g.outcome = outs[g.outcome_index]
         g.title = g.title or m.get("question", "")
         g.slug = g.slug or m.get("slug", "")
         g.event_slug = g.event_slug or ev.get("slug", "")
@@ -317,7 +332,7 @@ def run(lookback_min: int, dry_run: bool) -> int:
     elif dry_run and candidates_log:  # test : aperçu du rapport pour les paris de ce passage
         print("\n" + "\n\n".join(report.build(candidates_log, [], now - 1, now)))
 
-    summary = (f"Fenêtre {lookback_min} min · {stats['trades']} ordres · "
+    summary = (f"Fenêtre {lookback_min} min · {stats['trades']} ordres + {stats['makers']} achats maker · "
                f"{stats['groups']} paris sur issues improbables · {stats['news_candidates']} sur l'actualité · "
                f"{stats['wallets_checked']} comptes examinés · {stats['markets_scanned']} marchés surveillés · "
                f"**{len(alerts)} alerte(s)**")
