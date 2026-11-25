@@ -1,0 +1,62 @@
+name: Scan options US
+
+on:
+  schedule:
+    # Un passage utile par jour, ~45 min avant la clôture de New York. Deux horaires pour couvrir
+    # l'heure d'hiver et l'heure d'été : le script ignore celui qui tombe hors de 15:00-16:00 à New York.
+    - cron: "15 19,20 * * 1-5"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Test : n'envoie aucune alerte, n'écrit rien"
+        type: boolean
+        default: false
+      force:
+        description: "Tourner même hors séance (relit la dernière séance)"
+        type: boolean
+        default: false
+      tickers:
+        description: "Limiter à ces actions (ex. AAPL,DECK) — vide = S&P 1500"
+        default: ""
+      min_score:
+        description: "Seuil d'alerte (70 en temps normal)"
+        default: "70"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: scan   # même groupe que Polymarket : un seul job écrit dans state/ à la fois
+  cancel-in-progress: false
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - run: pip install -q -r options_radar/requirements.txt
+      - name: Tests
+        run: python -m unittest tests.test_options_scoring
+      - name: Scan
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          OPTIONS_MIN_SCORE: ${{ inputs.min_score || '70' }}
+        run: >
+          python -W ignore -m options_radar
+          ${{ inputs.dry_run && '--dry-run' || '' }}
+          ${{ inputs.force && '--force' || '' }}
+          ${{ inputs.tickers && format('--tickers {0}', inputs.tickers) || '' }}
+      - name: Enregistrer l'état
+        if: ${{ !inputs.dry_run }}
+        run: |
+          git config user.name "options-radar"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add state/
+          git diff --cached --quiet && exit 0
+          git commit -m "options state: $(date -u +%FT%TZ)"
+          git pull --rebase && git push
