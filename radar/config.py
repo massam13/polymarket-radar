@@ -11,7 +11,7 @@ def _num(name: str, default: float) -> float:
 
 # --- Collecte ---
 LOOKBACK_MIN = int(_num("LOOKBACK_MIN", 60))       # fenêtre relue à chaque passage (chevauchement voulu, dédoublonné)
-MIN_TRADE_CASH = _num("MIN_TRADE_CASH", 300)       # on ne récupère que les ordres >= 300 $
+MIN_TRADE_CASH = _num("MIN_TRADE_CASH", 0)         # pas de seuil par ordre : on regroupe d'abord (achats fractionnés)
 MAX_WALLET_LOOKUPS = int(_num("MAX_WALLET_LOOKUPS", 40))
 MAX_MARKET_LOOKUPS = int(_num("MAX_MARKET_LOOKUPS", 120))
 MAX_TAG_LOOKUPS = int(_num("MAX_TAG_LOOKUPS", 400))  # thèmes d'événements récupérés par scan
@@ -22,6 +22,23 @@ MAX_PRICE = _num("MAX_PRICE", 0.35)                # au-delà, l'issue n'est plu
 MIN_PRICE = _num("MIN_PRICE", 0.01)                # en dessous, le marché est déjà joué : billet de loterie, pas un pari informé
 MIN_SCORE = _num("MIN_SCORE", 60)                  # seuil d'alerte (0-100)
 REALERT_FACTOR = _num("REALERT_FACTOR", 2.0)       # ré-alerte si la mise a été multipliée par 2 depuis
+LOG_MIN_SCORE = _num("LOG_MIN_SCORE", 30)          # paris notés à partir de 30 gardés dans state/candidates.jsonl
+CONTEXT_MIN_SCORE = _num("CONTEXT_MIN_SCORE", 45)  # au-dessus, on regarde la cote d'avant et les autres acheteurs
+
+# --- Cote avant le pari (un initié achète avant que le marché bouge) ---
+RUNUP_HOURS = _num("RUNUP_HOURS", 24)
+RUNUP_STRONG = (0.05, 1.5, -15)    # +5 pts et x1,5 en 24 h avant le 1er achat : -15
+RUNUP_MILD = (0.03, 1.25, -7)      # +3 pts et x1,25 : -7
+STABLE_PTS = _num("STABLE_PTS", 5)  # cote stable avant le pari : +5
+
+# --- Autres comptes neufs sur la même issue ---
+CROWD_HOURS = _num("CROWD_HOURS", 24)
+CROWD_MIN_CASH = _num("CROWD_MIN_CASH", 500)
+CROWD_NEW_DAYS = _num("CROWD_NEW_DAYS", 14)
+CROWD_MAX_PROFILES = int(_num("CROWD_MAX_PROFILES", 6))  # comptes examinés par pari
+# Testé sur 20 affaires : autant de comptes neufs sur les marchés populaires (Fed, élections) que chez les initiés.
+# Affiché dans l'alerte, mais 0 point par défaut. RADAR_CROWD_PTS=10 pour le réactiver.
+CROWD_PTS = _num("CROWD_PTS", 0)
 
 # --- Mouvements de marché ---
 MOVES_ENABLED = _num("MOVES_ENABLED", 1) > 0      # RADAR_MOVES_ENABLED=0 pour couper ces alertes

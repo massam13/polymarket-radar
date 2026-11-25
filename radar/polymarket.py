@@ -80,6 +80,7 @@ def normalize_trade(t: dict) -> dict:
         "eventSlug": _pick(t, "event_slug", "eventSlug", default=""),
         "pseudonym": _pick(t, "pseudonym", "name", default=""),
         "transactionHash": _pick(t, "transaction_hash", "transactionHash", default=""),
+        "tokenId": str(_pick(t, "token_id", "asset", "tokenId", default="") or ""),
     }
 
 
@@ -134,6 +135,26 @@ def market_trades(condition_id: str, since_ts: int, max_pages: int = 10) -> list
         if done or not cursor or not rows:
             break
     return out
+
+
+CLOB = "https://clob.polymarket.com"
+
+
+def price_history(token_id: str, start_ts: int, end_ts: int, fidelity: int = 60) -> list[tuple[int, float]]:
+    """Cote d'une issue dans le temps (points toutes les `fidelity` minutes)."""
+    res = get(CLOB, "/prices-history", {"market": token_id, "startTs": start_ts, "endTs": end_ts, "fidelity": fidelity})
+    return [(int(p["t"]), float(p["p"])) for p in (res or {}).get("history", []) if "t" in p and "p" in p]
+
+
+def outcome_token(market: dict | None, outcome_index: int) -> str | None:
+    import json as _json
+    ids = (market or {}).get("clobTokenIds")
+    if isinstance(ids, str):
+        try:
+            ids = _json.loads(ids)
+        except ValueError:
+            return None
+    return ids[outcome_index] if ids and 0 <= outcome_index < len(ids) else None
 
 
 def market_by_condition(condition_id: str) -> dict | None:

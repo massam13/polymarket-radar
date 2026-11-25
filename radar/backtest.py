@@ -93,9 +93,66 @@ def full_activity(wallet: str) -> list[dict]:
     return out
 
 
-def replay_scans(wallet: str, acts: list[dict]) -> tuple[list[dict], dict]:
+class MarketTape:
+    """Trades passés d'un marché, lus à reculons depuis le plus récent (l'API ne filtre pas par date), en cache."""
+
+    def __init__(self, cid: str, max_pages: int = 400):
+        self.cid, self.max_pages, self.pages = cid, max_pages, 0
+        self.trades: list[dict] = []
+        self.cursor, self.done = None, False
+
+    def window(self, start: int, end: int) -> list[dict] | None:
+        while not self.done and (not self.trades or self.trades[-1]["timestamp"] >= start):
+            if self.pages >= self.max_pages:
+                return None  # trop loin dans le passé : on ne sait pas
+            rows, self.cursor = pm._rows(pm.get(pm.DATA, "/v2/trades", {"condition": self.cid, "limit": 1000,
+                                                                        "cursor": self.cursor}))
+            self.pages += 1
+            self.trades += [pm.normalize_trade(r) for r in rows]
+            self.done = not self.cursor or not rows
+        return [t for t in self.trades if start <= t["timestamp"] <= end]
+
+
+def first_seen(wallet: str, cache: dict) -> tuple[int | None, int]:
+    """Date de la 1re activité d'un compte et nombre d'événements de la 1re page (1000 = compte actif)."""
+    if wallet not in cache:
+        try:
+            rows, _ = pm._rows(pm.get(pm.DATA, "/v2/activity", {"user": wallet, "limit": 1000, "start": 1}))
+            ts = [pm._ts(pm._pick(r, "timestamp", default=0)) for r in rows]
+            cache[wallet] = (min(ts) if ts else None, len(rows))
+        except Exception:
+            cache[wallet] = (None, 0)
+    return cache[wallet]
+
+
+def replay_context(g, scan: int, tapes: dict, price_cache: dict, seen_cache: dict, crowd: bool) -> dict:
+    from .scoring import crowd_wallets, price_context
+    ctx: dict = {}
+    if g.token_id:
+        k = (g.token_id, g.first_ts)
+        if k not in price_cache:
+            try:
+                price_cache[k] = pm.price_history(g.token_id, g.first_ts - int((config.RUNUP_HOURS + 1) * 3600), g.first_ts + 60)
+            except Exception:
+                price_cache[k] = []
+        ctx["price"] = price_context(price_cache[k], g.first_ts)
+    if crowd:
+        tape = tapes.setdefault(g.condition_id, MarketTape(g.condition_id))
+        trades = tape.window(g.last_ts - int(config.CROWD_HOURS * 3600), scan)
+        if trades is not None:
+            n_new = 0
+            for w, _ in crowd_wallets(trades, g)[: config.CROWD_MAX_PROFILES]:
+                first, n = first_seen(w, seen_cache)
+                if first is not None and scan - first < config.CROWD_NEW_DAYS * 86400:
+                    n_new += 1
+            ctx["crowd_new"] = n_new
+    return ctx
+
+
+def replay_scans(wallet: str, acts: list[dict], crowd: bool = True, tapes: dict | None = None,
+                 price_cache: dict | None = None, seen_cache: dict | None = None) -> tuple[list[dict], dict]:
     """Rejoue des scans toutes les 15 min sur 60 min, avec l'état du compte à chaque instant.
-    Fidèle au radar : ordres < MIN_TRADE_CASH invisibles, filtre « actualité », compte « actif » au-delà de 1000 événements,
+    Fidèle au radar : ordres < MIN_TRADE_CASH invisibles, cote avant le pari et autres comptes neufs (si crowd), filtre « actualité », compte « actif » au-delà de 1000 événements,
     dédoublonnage (nouvelle alerte seulement si la mise double). Le poids dans le volume du marché n'est pas rejoué."""
     import bisect
     from .scoring import is_news_topic, score_bet
@@ -134,6 +191,9 @@ def replay_scans(wallet: str, acts: list[dict]) -> tuple[list[dict], dict]:
     tr_ts = [t["timestamp"] for t in trades]
     rows: list[dict] = []
     seen: dict[str, float] = {}
+    tapes = {} if tapes is None else tapes
+    price_cache = {} if price_cache is None else price_cache
+    seen_cache = {} if seen_cache is None else seen_cache
     scan_times = sorted({(ts // 900 + k) * 900 for ts in vis_ts for k in range(1, 5)})
     for scan in scan_times:
         lo, hi = bisect.bisect_right(vis_ts, scan - 3600), bisect.bisect_right(vis_ts, scan)
@@ -149,13 +209,18 @@ def replay_scans(wallet: str, acts: list[dict]) -> tuple[list[dict], dict]:
         state = {"age_days": None if busy else (scan - first_ts) / 86400, "markets_traded": len(vol), "busy": busy,
                  "volume_by_market": vol, "theme_of": {} if busy else theme_clusters({c: keys[c] for c in vol})}
         for g in groups:
-            score, why = score_bet(g, state, None, theme_burst(g, window, state["theme_of"]))
+            burst = theme_burst(g, window, state["theme_of"])
+            score, why = score_bet(g, state, None, burst)
+            ctx = None
+            if score >= config.CONTEXT_MIN_SCORE:
+                ctx = replay_context(g, scan, tapes, price_cache, seen_cache, crowd)
+                score, why = score_bet(g, state, None, burst, ctx)
             prev = seen.get(g.key)
             alert = score >= config.MIN_SCORE and (prev is None or g.cash >= prev * config.REALERT_FACTOR)
             if alert:
                 seen[g.key] = g.cash
             rows.append({"scan": scan, "title": g.title, "cash": g.cash, "price": g.avg_price, "score": score,
-                         "alert": alert, "why": why, "age": state["age_days"], "n_markets": len(vol)})
+                         "alert": alert, "why": why, "age": state["age_days"], "n_markets": len(vol), "ctx": ctx})
     return rows, info
 
 

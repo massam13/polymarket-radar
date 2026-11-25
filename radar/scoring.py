@@ -19,6 +19,7 @@ class BuyGroup:
     slug: str
     event_slug: str
     pseudonym: str
+    token_id: str = ""
     cash: float = 0.0
     shares: float = 0.0
     fills: int = 0
@@ -60,7 +61,8 @@ def group_buys(trades: list[dict]) -> list[BuyGroup]:
                 wallet=t.get("proxyWallet", ""), condition_id=t.get("conditionId", ""),
                 outcome=str(t.get("outcome", "")), outcome_index=int(t.get("outcomeIndex") or 0),
                 title=t.get("title", ""), slug=t.get("slug", ""), event_slug=t.get("eventSlug", ""),
-                pseudonym=t.get("pseudonym") or t.get("name") or "", first_ts=ts, last_ts=ts,
+                pseudonym=t.get("pseudonym") or t.get("name") or "", token_id=str(t.get("tokenId") or ""),
+                first_ts=ts, last_ts=ts,
             )
         g.cash += size * price
         g.shares += size
@@ -165,7 +167,50 @@ def theme_burst(g: BuyGroup, groups: list[BuyGroup], theme_of: dict[str, int]) -
     return max(total, g.cash)
 
 
-def score_bet(g: BuyGroup, wallet: dict, market: dict | None, theme_cash: float | None = None) -> tuple[int, list[str]]:
+def price_context(history: list[tuple[int, float]], first_ts: int, hours: float | None = None) -> dict | None:
+    """Cote de l'issue juste avant le 1er achat, et `hours` plus tôt."""
+    hours = config.RUNUP_HOURS if hours is None else hours
+    before = [p for t, p in history if t <= first_ts]
+    if not before:
+        return None
+    ref = [p for t, p in history if t <= first_ts - hours * 3600]
+    return {"before": before[-1], "ref": ref[-1] if ref else None, "hours": hours}
+
+
+def runup_points(ctx: dict | None) -> tuple[int, str | None]:
+    """Un initié achète avant que la cote bouge. Si elle a déjà monté, le pari suit probablement une info publique."""
+    if not ctx or ctx.get("ref") is None:
+        return 0, None
+    ref, before = ctx["ref"], ctx["before"]
+    rise, ratio = before - ref, before / max(ref, 0.005)
+    span = f"de {ref:.1%} à {before:.1%} en {ctx['hours']:.0f} h avant le pari"
+    for min_rise, min_ratio, pts in (config.RUNUP_STRONG, config.RUNUP_MILD):
+        if rise >= min_rise and ratio >= min_ratio:
+            return pts, f"cote déjà montée {span}"
+    if rise <= max(0.01, 0.1 * ref):
+        trend = "en baisse" if rise < -0.01 else "stable"
+        return int(config.STABLE_PTS), f"cote {trend} avant le pari ({ref:.1%} → {before:.1%})"
+    return 0, None
+
+
+def crowd_wallets(trades: list[dict], g: BuyGroup) -> list[tuple[str, float]]:
+    """Autres comptes qui achètent la même issue (mise ≥ CROWD_MIN_CASH, issue toujours improbable)."""
+    others = [x for x in group_buys([t for t in trades if t.get("proxyWallet") != g.wallet])
+              if x.condition_id == g.condition_id and x.outcome_index == g.outcome_index
+              and x.cash >= config.CROWD_MIN_CASH and is_longshot(x.avg_price)]
+    return sorted(((x.wallet, x.cash) for x in others), key=lambda kv: -kv[1])
+
+
+def crowd_points(n_new: int | None) -> tuple[int, str | None]:
+    if not n_new:
+        return 0, None
+    what = f"{n_new} autre(s) compte(s) neuf(s) sur la même issue en {config.CROWD_HOURS:.0f} h"
+    pts = config.CROWD_PTS if n_new >= 2 else config.CROWD_PTS / 2
+    return int(pts), what
+
+
+def score_bet(g: BuyGroup, wallet: dict, market: dict | None, theme_cash: float | None = None,
+              context: dict | None = None) -> tuple[int, list[str]]:
     pts, why = 0, []
 
     lp = _longshot_pts(g.avg_price)
@@ -214,7 +259,12 @@ def score_bet(g: BuyGroup, wallet: dict, market: dict | None, theme_cash: float 
     if g.fills >= 3:
         pts += 5; why.append(f"{g.fills} ordres successifs")
 
-    return min(pts, 100), why
+    if context:
+        for p, w in (runup_points(context.get("price")), crowd_points(context.get("crowd_new"))):
+            if p:
+                pts += p; why.append(w)
+
+    return max(0, min(pts, 100)), why
 
 
 def market_move(m: dict) -> tuple[float, str] | None:

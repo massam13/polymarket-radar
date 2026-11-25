@@ -18,12 +18,19 @@ Lecture seule des API publiques Polymarket (`data-api`, `gamma-api`), aucune cl�
 | Part de son argent sur ce sujet : ≥ 90 % / 75 % / 50 % | 15 / 10 / 5 |
 | Mise ≥ 50 % / 20 % du volume 24 h du marché | 10 / 6 |
 | ≥ 3 ordres successifs (accumulation) | 5 |
+| Cote déjà montée dans les 24 h avant le pari (+5 pts et ×1,5 / +3 pts et ×1,25) | −15 / −7 |
+| Cote stable ou en baisse avant le pari | 5 |
 
 Un « sujet » regroupe les marchés liés (ex. « frappes sur l'Iran avant le 20 / le 28 février / le 15 mars »).
 La part est mesurée en argent et non en nombre de marchés : quelques petits paris « leurres » ailleurs ne diluent pas le signal.
 Une seule alerte par compte et par sujet à chaque scan.
 
-Rejoué sur 20 affaires connues (Iran, Biden, Maduro…), ce score repère 9 des 16 comptes rejouables, souvent plusieurs jours avant les faits.
+Tous les ordres sont lus, même petits : un compte qui fractionne ses achats est regroupé avant d'être jugé.
+L'alerte indique aussi la cote 24 h avant, et combien d'autres comptes neufs ont pris la même issue (pour info : sur les
+affaires testées, ce n'était pas plus fréquent que sur les marchés populaires).
+Tous les paris notés à partir de 30 sont gardés dans `state/candidates.jsonl`, pour mesurer plus tard lesquels ont précédé une annonce.
+
+Rejoué sur 20 affaires connues (Iran, Biden, Maduro…), ce score repère 10 des 16 comptes rejouables, souvent plusieurs jours avant les faits.
 
 **📈 Mouvement brusque** : la proba d'un marché d'actualité bouge de ≥ 20 points en 1 h avec ≥ 100 k$ de volume 24 h
 (hors marchés qui se terminent dans les 24 h). Désactivable avec `RADAR_MOVES_ENABLED=0`.

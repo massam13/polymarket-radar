@@ -11,11 +11,11 @@ from pathlib import Path
 
 from . import config, notify
 from . import polymarket as pm
-from .scoring import (fmt_usd, group_buys, is_longshot, is_news_topic, is_same_day_market, market_move, move_drivers,
+from .scoring import (crowd_wallets, fmt_usd, group_buys, is_longshot, is_news_topic, price_context, is_same_day_market, market_move, move_drivers,
                       prelim_score, score_bet, theme_burst, theme_clusters, theme_keys)
 
 STATE = Path(__file__).resolve().parent.parent / "state"
-SEEN_FILE, ALERTS_FILE = STATE / "seen.json", STATE / "alerts.jsonl"
+SEEN_FILE, ALERTS_FILE, CANDIDATES_FILE = STATE / "seen.json", STATE / "alerts.jsonl", STATE / "candidates.jsonl"
 
 
 def hhmm(ts: int) -> str:
@@ -35,10 +35,12 @@ def save_seen(seen: dict, now: int) -> None:
     SEEN_FILE.write_text(json.dumps(keep, indent=1, sort_keys=True) + "\n")
 
 
-def bet_message(g, score, why, market) -> str:
+def bet_message(g, score, why, market, now: int | None = None, context: dict | None = None) -> str:
     gain = g.payout - g.cash
     who = g.pseudonym or g.wallet[:10]
     window = hhmm(g.first_ts) if g.fills == 1 else f"{hhmm(g.first_ts)} → {hhmm(g.last_ts)}"
+    if now:
+        window += f" (il y a {max(0, now - g.last_ts) // 60} min)"
     lines = [
         f"🚨 Pari suspect — score {score}/100",
         g.title,
@@ -46,6 +48,15 @@ def bet_message(g, score, why, market) -> str:
         f"Gain si ça tombe : +{fmt_usd(gain)} (×{g.payout / g.cash:.1f})",
         f"Compte : {who} · {g.fills} ordre(s) · {window}",
         "Pourquoi : " + ", ".join(why),
+    ]
+    pc = (context or {}).get("price")
+    if pc:
+        lines.append(f"Cote de l'issue : {pc['ref']:.1%} 24 h avant → {pc['before']:.1%} juste avant le pari"
+                     if pc.get("ref") is not None else f"Cote juste avant le pari : {pc['before']:.1%}")
+    crowd = (context or {}).get("crowd_new")
+    if crowd is not None and not config.CROWD_PTS:
+        lines.append(f"Autres comptes neufs (< {config.CROWD_NEW_DAYS:.0f} j) sur la même issue en 24 h : {crowd}")
+    lines += [
         f"https://polymarket.com/event/{g.event_slug or g.slug}",
         f"https://polymarket.com/profile/{g.wallet}",
     ]
@@ -106,6 +117,31 @@ def add_themes(wallet: dict, market_cache: dict, tag_cache: dict, max_markets: i
     wallet["theme_of"] = theme_clusters(keys)
 
 
+def bet_context(g, market: dict | None, profiles: dict, now: int) -> dict:
+    """Cote de l'issue avant le pari et autres comptes neufs sur la même issue (appels réseau, bornés)."""
+    ctx: dict = {}
+    try:
+        token = g.token_id or pm.outcome_token(market, g.outcome_index)
+        if token:
+            hist = pm.price_history(token, g.first_ts - int((config.RUNUP_HOURS + 1) * 3600), g.first_ts + 60)
+            ctx["price"] = price_context(hist, g.first_ts)
+    except Exception as e:
+        print(f"::warning title=Cote KO::{type(e).__name__}: {e}"[:300])
+    try:
+        mt = pm.market_trades(g.condition_id, g.last_ts - int(config.CROWD_HOURS * 3600), max_pages=20)
+        n_new = 0
+        for w, _ in crowd_wallets(mt, g)[: config.CROWD_MAX_PROFILES]:
+            if w not in profiles:
+                profiles[w] = pm.wallet_profile(w, now)
+            p = profiles[w]
+            if not p.get("busy") and p.get("age_days") is not None and p["age_days"] < config.CROWD_NEW_DAYS:
+                n_new += 1
+        ctx["crowd_new"] = n_new
+    except Exception as e:
+        print(f"::warning title=Autres acheteurs KO::{type(e).__name__}: {e}"[:300])
+    return ctx
+
+
 def run(lookback_min: int, dry_run: bool) -> int:
     now = int(time.time())
     since = now - lookback_min * 60
@@ -156,6 +192,7 @@ def run(lookback_min: int, dry_run: bool) -> int:
     stats["news_candidates"] = len(candidates)
 
     scored: list[tuple] = []
+    candidates_log: list[dict] = []
     profiles: dict[str, dict] = {}
     best_by_theme: dict[tuple, dict] = {}  # une seule alerte par compte et par sujet dans un même scan
     for g in candidates[: config.MAX_WALLET_LOOKUPS]:
@@ -169,11 +206,27 @@ def run(lookback_min: int, dry_run: bool) -> int:
         wallet = profiles[g.wallet]
         theme_of = wallet.get("theme_of") or {}
         burst = theme_burst(g, all_groups, theme_of)
-        score, why = score_bet(g, wallet, market_cache[g.condition_id], burst)
+        market = market_cache[g.condition_id]
+        score, why = score_bet(g, wallet, market, burst)
+        ctx = None
+        if score >= config.CONTEXT_MIN_SCORE:
+            ctx = bet_context(g, market, profiles, now)
+            score, why = score_bet(g, wallet, market, burst, ctx)
         print(f"  {score:3d}  {fmt_usd(g.cash):>10}  @{g.avg_price:.3f}  {g.title[:70]}")
         scored.append((score, g.cash, g.avg_price, g.title))
+        log_key = "log:" + g.key
+        if score >= config.LOG_MIN_SCORE and (log_key not in seen or g.cash >= seen[log_key].get("cash", 0) * 1.5):
+            pc = (ctx or {}).get("price") or {}
+            candidates_log.append({"ts": now, "key": g.key, "score": score, "cash": round(g.cash, 2),
+                                   "theme_cash": round(burst, 2), "price": round(g.avg_price, 4), "title": g.title,
+                                   "outcome": g.outcome, "wallet": g.wallet, "condition_id": g.condition_id,
+                                   "event_slug": g.event_slug, "first_ts": g.first_ts, "last_ts": g.last_ts,
+                                   "age_days": wallet.get("age_days"), "price_ref": pc.get("ref"),
+                                   "price_before": pc.get("before"), "crowd_new": (ctx or {}).get("crowd_new"),
+                                   "why": why})
+            seen[log_key] = {"ts": now, "cash": g.cash}
         if score >= config.MIN_SCORE:
-            text = bet_message(g, score, why, market_cache[g.condition_id])
+            text = bet_message(g, score, why, market, now, ctx)
             theme = (g.wallet, theme_of.get(g.condition_id, g.event_slug or g.condition_id))
             other = best_by_theme.get(theme)
             if other and other["score"] >= score:
@@ -236,12 +289,16 @@ def run(lookback_min: int, dry_run: bool) -> int:
         seen[a["key"]] = {"ts": now, "cash": a.get("cash", 0)}
     if not dry_run:
         save_seen(seen, now)
+        if candidates_log:
+            with CANDIDATES_FILE.open("a") as f:
+                for c in candidates_log:
+                    f.write(json.dumps(c, ensure_ascii=False) + "\n")
         if alerts:
             with ALERTS_FILE.open("a") as f:
                 for a in alerts:
                     f.write(json.dumps({k: v for k, v in a.items() if k != "text"}, ensure_ascii=False) + "\n")
 
-    summary = (f"Fenêtre {lookback_min} min · {stats['trades']} ordres ≥ {fmt_usd(config.MIN_TRADE_CASH)} · "
+    summary = (f"Fenêtre {lookback_min} min · {stats['trades']} ordres · "
                f"{stats['groups']} paris sur issues improbables · {stats['news_candidates']} sur l'actualité · "
                f"{stats['wallets_checked']} comptes examinés · {stats['markets_scanned']} marchés surveillés · "
                f"**{len(alerts)} alerte(s)**")

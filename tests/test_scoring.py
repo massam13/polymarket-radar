@@ -136,6 +136,24 @@ class TestSujets(unittest.TestCase):
         self.assertTrue(is_longshot(0.065))   # Huang
         self.assertFalse(is_longshot(0.5))
 
+    def test_cote_deja_montee(self):
+        from radar.scoring import price_context, runup_points
+        h = [(0, 0.045), (3600 * 12, 0.09), (3600 * 24, 0.16)]  # Rubio : 4,5 % → 16 % en 24 h
+        ctx = price_context(h, 3600 * 24 + 600)
+        self.assertEqual(runup_points(ctx)[0], -15)
+        self.assertEqual(runup_points(price_context([(0, 0.06), (86400, 0.062)], 86400 + 60))[0], 5)
+        self.assertEqual(runup_points(price_context([(86400, 0.06)], 86400 + 60))[0], 0)  # pas d'historique 24 h
+
+    def test_autres_comptes_sur_la_meme_issue(self):
+        from radar.scoring import crowd_points, crowd_wallets
+        [g] = group_buys([trade(size=20_000, price=0.1)])
+        others = [trade(proxyWallet="0xb", size=8_000, price=0.1), trade(proxyWallet="0xc", size=1_000, price=0.1),
+                  trade(proxyWallet="0xd", size=9_000, price=0.1, outcomeIndex=1),
+                  trade(proxyWallet="0xe", size=9_000, price=0.1, side="SELL")]
+        self.assertEqual([w for w, _ in crowd_wallets(others + [trade(size=1, price=0.1)], g)], ["0xb"])
+        self.assertEqual(crowd_points(2)[0], 0)  # affiché sans points (non discriminant sur les 20 affaires)
+        self.assertEqual(crowd_points(0)[0], 0)
+
     def test_courbe_continue_de_probabilite(self):
         from radar.scoring import _longshot_pts
         self.assertEqual([_longshot_pts(p) for p in (0.03, 0.05, 0.30, 0.40, 0.6)], [30, 30, 9, 0, 0])
