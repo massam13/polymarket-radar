@@ -209,6 +209,11 @@ def crowd_points(n_new: int | None) -> tuple[int, str | None]:
     return int(pts), what
 
 
+def _days(d: float) -> str:
+    return f"{d / 365:.1f} an".replace(".0 an", " an").replace(".", ",") + ("s" if d >= 730 else "") if d >= 365 \
+        else f"{d / 30.4:.0f} mois" if d >= 60 else f"{d:.0f} j"
+
+
 def score_parts(g: BuyGroup, wallet: dict, market: dict | None, theme_cash: float | None = None,
                 context: dict | None = None) -> list[dict]:
     """Détail du score, critère par critère : points obtenus, maximum, raison affichée (why) et explication (note)."""
@@ -223,15 +228,16 @@ def score_parts(g: BuyGroup, wallet: dict, market: dict | None, theme_cash: floa
     cash = max(g.cash, theme_cash or 0)
     sp = _size_pts(cash)
     add("mise", sp, 30, f"mise de {fmt_usd(g.cash)}" if cash <= g.cash + 1 else f"{fmt_usd(cash)} misés sur ce sujet en 1 h",
-        f"{fmt_usd(cash)} misés")
+        f"mise moyenne ({fmt_usd(cash)})" if sp <= 12 else f"{fmt_usd(cash)} misés")
 
     busy = bool(wallet.get("busy"))
-    busy_note = "compte très actif (plus de 1 000 opérations)"
+    since = wallet.get("since_days")
+    busy_note = "compte très actif (plus de 1 000 opérations" + (f", créé il y a {_days(since)})" if since else ")")
     age = wallet.get("age_days")
     if age is not None:
         ap = _age_pts(age)
         add("âge", ap, 20, f"compte créé il y a {age * 24:.0f} h" if age < 2 else f"compte de {age:.0f} j",
-            f"compte de {age:.0f} j")
+            f"compte ancien (créé il y a {_days(age)})" if age >= 90 else f"compte pas tout neuf ({age:.0f} j)")
     else:
         add("âge", 0, 20, None, busy_note if busy else "historique du compte illisible (API)")
 
@@ -247,7 +253,8 @@ def score_parts(g: BuyGroup, wallet: dict, market: dict | None, theme_cash: floa
         cp = 15 if share >= 0.9 else 10 if share >= 0.75 else 5 if share >= 0.5 else 0
         n = wallet.get("markets_traded") or len(vol)
         detail = "aucun autre marché tradé" if n <= 1 else f"{share:.0%} de son argent sur ce sujet ({n} marchés tradés)"
-        add("concentration", cp, 15, detail, detail)
+        add("concentration", cp, 15, detail,
+            detail if share >= 0.5 else f"argent réparti sur {n} marchés ({share:.0%} sur ce sujet)")
     else:
         add("concentration", 0, 15, None, busy_note if busy else "historique du compte illisible (API)")
 
@@ -255,12 +262,12 @@ def score_parts(g: BuyGroup, wallet: dict, market: dict | None, theme_cash: floa
     if v24 > 0:
         s = g.cash / v24
         vp = 10 if s >= 0.5 else 6 if s >= 0.2 else 0
-        add("volume", vp, 10, f"{s:.0%} du volume 24 h du marché", f"{s:.0%} du volume 24 h du marché")
+        add("volume", vp, 10, f"{s:.0%} du volume 24 h du marché", f"pèse peu sur le marché ({s:.0%} du volume 24 h)")
     else:
         add("volume", 0, 10, None, "volume 24 h du marché inconnu")
 
     add("ordres", 5 if g.fills >= 3 else 0, 5, f"{g.fills} ordres successifs",
-        f"{g.fills} ordre(s)" if g.fills < 3 else f"{g.fills} ordres successifs")
+        "un seul ordre" if g.fills == 1 else f"{g.fills} ordres" if g.fills < 3 else f"{g.fills} ordres successifs")
 
     if context:
         rp, rw = runup_points(context.get("price"))
@@ -292,11 +299,11 @@ def missed_reasons(parts: list[dict], context_checked: bool) -> list[str]:
     for note, ps in groups.items():
         pts, mx = sum(p["pts"] for p in ps), sum(p["max"] for p in ps)
         if len(ps) > 1:
-            text = f"{note} : {' et '.join(p['k'] for p in ps)} non comptés ({pts}/{mx})"
+            text = f"{note} → {' et '.join(p['k'] for p in ps)} non comptés ({pts}/{mx})"
         elif ps[0]["pts"] < 0:
             text = f"{note} ({pts})"
-        elif ps[0]["note"] in ("compte très actif (plus de 1 000 opérations)", "historique du compte illisible (API)"):
-            text = f"{note} : {ps[0]['k']} non compté ({pts}/{mx})"
+        elif ps[0]["k"] in ("âge", "concentration") and ps[0]["pts"] == 0 and ("très actif" in note or "illisible" in note):
+            text = f"{note} → {ps[0]['k']} non compté ({pts}/{mx})"
         else:
             text = f"{note} ({pts}/{mx})"
         rows.append((pts - mx, text))

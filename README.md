@@ -30,7 +30,7 @@ L'alerte indique aussi la cote 24 h avant, et combien d'autres comptes neufs ont
 affaires testées, ce n'était pas plus fréquent que sur les marchés populaires).
 Tous les paris notés à partir de 30 sont gardés dans `state/candidates.jsonl`, pour mesurer plus tard lesquels ont précédé une annonce.
 
-**Rapport horaire.** Une fois par heure, le radar envoie sur Telegram les paris notés entre 30 et 59 depuis le rapport précédent : marché, mise, cote, profil du compte, détail des points critère par critère et ce qui a manqué pour l'alerte (ex. « compte très actif (plus de 1 000 opérations), non compté »). Rien n'est envoyé pour une heure vide (`RADAR_REPORT_EMPTY=1` pour recevoir quand même « rien à signaler », `RADAR_REPORT_EVERY_MIN=0` pour couper). Aperçu local : `python -m radar --report 120`.
+**Rapport horaire.** Au premier scan de chaque heure, de 8 h à 23 h (heure de Paris), le radar envoie sur Telegram les paris notés entre 30 et 59 depuis le rapport précédent : score, marché, mise, cote, liens courts vers le marché et le compte, et les 3 raisons qui ont le plus coûté (ex. « compte très actif (plus de 1 000 opérations, créé il y a 3 mois) → âge et concentration non comptés »). Rien n'est envoyé pour une heure vide. La nuit, aucun rapport (les alertes ≥ 60 continuent) ; à 8 h, un rapport de nuit couvre 23 h → 8 h, même vide. Réglages : `RADAR_REPORT_FIRST_HOUR`, `RADAR_REPORT_LAST_HOUR`, `RADAR_REPORT_EMPTY=1`, `RADAR_REPORT_EVERY_MIN=0` pour couper. Aperçu local : `python -m radar --report 120`.
 
 Rejoué sur 20 affaires connues (Iran, Biden, Maduro…), ce score repère 10 des 16 comptes rejouables, souvent plusieurs jours avant les faits.
 

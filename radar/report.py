@@ -1,6 +1,8 @@
-"""Rapport horaire : les paris notés entre LOG_MIN_SCORE et MIN_SCORE, et pourquoi ils n'ont pas déclenché d'alerte."""
+"""Rapport horaire : les paris notés entre LOG_MIN_SCORE et MIN_SCORE, et pourquoi ils n'ont pas déclenché d'alerte.
+Envoyé au premier scan de chaque heure, de 8 h à 23 h (heure de Paris). La nuit, rien ; à 8 h, un rapport de nuit."""
 from __future__ import annotations
 
+import html
 import json
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -17,8 +19,28 @@ except Exception:  # pas de base de fuseaux : heure d'hiver par défaut
 TG_MAX = 3900  # Telegram coupe à 4 096 caractères
 
 
+def local(ts: int) -> datetime:
+    return datetime.fromtimestamp(ts, PARIS)
+
+
 def paris(ts: int, fmt: str = "%H:%M") -> str:
-    return datetime.fromtimestamp(ts, PARIS).strftime(fmt)
+    return local(ts).strftime(fmt)
+
+
+def due(now: int, last: int) -> bool:
+    """Premier scan d'une nouvelle heure, hors nuit (rapport de nuit inclus à l'heure du réveil)."""
+    if not config.REPORT_EVERY_MIN:
+        return False
+    h = local(now).hour
+    if not (config.REPORT_FIRST_HOUR <= h <= config.REPORT_LAST_HOUR):
+        return False
+    return local(last).strftime("%Y%m%d%H") != local(now).strftime("%Y%m%d%H")
+
+
+def window_start(now: int, last: int) -> int:
+    """Depuis le dernier rapport, sans remonter au-delà de la nuit (premier rapport ou longue panne)."""
+    longest = (24 - config.REPORT_LAST_HOUR + config.REPORT_FIRST_HOUR + 1) * 3600
+    return max(last, now - longest)
 
 
 def load_jsonl(path: Path) -> list[dict]:
@@ -38,51 +60,36 @@ def pick(candidates: list[dict], start: int, end: int) -> list[dict]:
                   key=lambda c: -c.get("score", 0))
 
 
-def account_line(c: dict) -> str:
-    who = c.get("name") or c["wallet"][:10]
-    bits = []
-    if c.get("busy"):
-        bits.append("très actif (plus de 1 000 opérations)")
-    elif c.get("age_days") is not None:
-        bits.append(f"créé il y a {c['age_days']:.0f} j")
-    if c.get("markets_traded") and not c.get("busy"):
-        bits.append(f"{c['markets_traded']} marché(s) tradé(s)")
-    return f"Compte : {who}" + (" · " + ", ".join(bits) if bits else "")
+def _pct(p: float) -> str:
+    return (f"{p:.0%}" if p >= 0.095 else f"{p:.1%}").replace(".", ",")
 
 
 def entry(c: dict, i: int) -> str:
-    gap = int(config.MIN_SCORE) - c["score"]
+    e = html.escape
     when = paris(c["first_ts"]) if c["first_ts"] == c["last_ts"] else f"{paris(c['first_ts'])}–{paris(c['last_ts'])}"
-    fills = f" · {c['fills']} ordre(s)" if c.get("fills") else ""
-    lines = [
-        f"{i}) {c['score']}/100 (manque {gap}) — {c['title']}",
-        f"Achat « {c['outcome']} » à {c['price']:.1%} · {fmt_usd(c['cash'])}{fills} · {when}",
-        account_line(c),
-    ]
-    if c.get("price_ref") is not None and c.get("price_before") is not None:
-        lines.append(f"Cote : {c['price_ref']:.1%} 24 h avant → {c['price_before']:.1%} juste avant le pari")
+    links = (f'<a href="https://polymarket.com/event/{e(c.get("event_slug") or "")}">marché</a> · '
+             f'<a href="https://polymarket.com/profile/{e(c["wallet"])}">compte</a>')
+    lines = [f"<b>{c['score']}/100</b> · {e(c['title'])}",
+             f"« {e(c['outcome'])} » à {_pct(c['price'])} · {fmt_usd(c['cash'])} · {when} · {links}"]
     parts = c.get("parts")
     if parts:
-        lines.append("Points : " + " · ".join(f"{p['k']} {p['pts']:+d}" if p["k"] == "cote d'avant"
-                                              else f"{p['k']} {p['pts']}/{p['max']}" for p in parts))
-        missed = missed_reasons(parts, c.get("price_ref") is not None or c.get("context_checked", False))
-        if missed:
-            lines.append("Pas d'alerte : " + " ; ".join(missed[:4]))
+        checked = c.get("price_ref") is not None or c.get("context_checked", False)
+        missed = missed_reasons(parts, checked)
+        lines.append("Écarté : " + e(" · ".join(missed[: config.REPORT_MAX_REASONS])))
     else:  # entrée d'avant le rapport détaillé
-        lines.append("Pourquoi ce score : " + ", ".join(c.get("why") or []))
-    lines.append(f"https://polymarket.com/event/{c.get('event_slug') or ''}")
-    lines.append(f"https://polymarket.com/profile/{c['wallet']}")
+        lines.append("Pourquoi ce score : " + e(", ".join(c.get("why") or [])))
     return "\n".join(lines)
 
 
-def build(candidates: list[dict], alerts: list[dict], start: int, end: int) -> list[str]:
-    """Messages du rapport (découpés pour Telegram). Liste vide s'il n'y a rien à signaler."""
+def build(candidates: list[dict], alerts: list[dict], start: int, end: int, night: bool = False) -> list[str]:
+    """Messages du rapport, en HTML Telegram, découpés à 4 096 caractères. Vide s'il n'y a rien à signaler."""
     items = pick(candidates, start, end)
     sent = [a for a in alerts if a.get("kind") == "bet" and start < a.get("ts", 0) <= end]
-    if not items and not config.REPORT_EMPTY:
+    if not items and not (night or config.REPORT_EMPTY):
         return []
-    head = (f"📋 Rapport radar {paris(start)} → {paris(end)} (heure de Paris)\n"
-            f"{len(items)} pari(s) noté(s) entre {config.LOG_MIN_SCORE:.0f} et {config.MIN_SCORE - 1:.0f} · "
+    title = "🌙 Rapport de nuit" if night else "📋 Radar"
+    head = (f"<b>{title} {paris(start)} → {paris(end)}</b>\n"
+            f"{len(items)} pari(s) entre {config.LOG_MIN_SCORE:.0f} et {config.MIN_SCORE - 1:.0f} · "
             f"{len(sent)} alerte(s) envoyée(s)")
     if not items:
         return [head + "\nRien à signaler."]
@@ -91,7 +98,7 @@ def build(candidates: list[dict], alerts: list[dict], start: int, end: int) -> l
         block = entry(c, i)
         if len(cur) + 2 + len(block) > TG_MAX:
             msgs.append(cur)
-            cur = f"📋 Rapport radar (suite)"
+            cur = f"<b>{title} (suite)</b>"
         cur += "\n\n" + block
     msgs.append(cur)
     return msgs

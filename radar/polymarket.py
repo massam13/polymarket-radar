@@ -186,6 +186,14 @@ def wallet_profile(address: str, now_ts: int) -> dict:
     if not prof["busy"]:
         first = min(_ts(_pick(a, "timestamp", default=now_ts)) for a in acts)
         prof["age_days"] = (now_ts - first) / 86400
+    else:  # âge affiché dans le rapport seulement (le score ne compte pas l'âge d'un compte très actif)
+        try:
+            oldest, _ = _rows(get(DATA, "/v2/activity", {"user": address, "limit": 1, "start": 1,
+                                                          "sortDirection": "ASC"}))
+            if oldest:
+                prof["since_days"] = (now_ts - _ts(_pick(oldest[0], "timestamp", default=now_ts))) / 86400
+        except Exception:
+            pass
     vol: dict[str, float] = {}
     for a in acts:
         if str(_pick(a, "type", default="")).upper() != "TRADE":

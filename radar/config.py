@@ -27,7 +27,10 @@ CONTEXT_MIN_SCORE = _num("CONTEXT_MIN_SCORE", 45)  # au-dessus, on regarde la co
 
 # --- Rapport horaire (paris notés sous le seuil d'alerte, avec ce qui leur a manqué) ---
 REPORT_EVERY_MIN = _num("REPORT_EVERY_MIN", 60)    # 0 pour couper le rapport
-REPORT_EMPTY = _num("REPORT_EMPTY", 0) > 0         # 1 pour envoyer aussi « rien à signaler »
+REPORT_EMPTY = _num("REPORT_EMPTY", 0) > 0         # 1 pour envoyer aussi « rien à signaler » en journée
+REPORT_FIRST_HOUR = int(_num("REPORT_FIRST_HOUR", 8))   # heure de Paris : rapport de nuit à 8 h…
+REPORT_LAST_HOUR = int(_num("REPORT_LAST_HOUR", 23))    # …dernier rapport horaire à 23 h, rien entre les deux
+REPORT_MAX_REASONS = int(_num("REPORT_MAX_REASONS", 3))  # raisons d'écartement affichées par pari
 
 # --- Cote avant le pari (un initié achète avant que le marché bouge) ---
 RUNUP_HOURS = _num("RUNUP_HOURS", 24)

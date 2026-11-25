@@ -224,7 +224,7 @@ def run(lookback_min: int, dry_run: bool) -> int:
                                    "event_slug": g.event_slug, "first_ts": g.first_ts, "last_ts": g.last_ts,
                                    "age_days": wallet.get("age_days"), "price_ref": pc.get("ref"),
                                    "price_before": pc.get("before"), "crowd_new": (ctx or {}).get("crowd_new"),
-                                   "why": why, "name": g.pseudonym, "fills": g.fills, "busy": wallet.get("busy"),
+                                   "why": why, "name": g.pseudonym, "fills": g.fills, "busy": wallet.get("busy"), "since_days": wallet.get("since_days"),
                                    "markets_traded": wallet.get("markets_traded"), "context_checked": ctx is not None,
                                    "parts": [{k: p[k] for k in ("k", "pts", "max", "note")} for p in parts]})
             seen[log_key] = {"ts": now, "cash": g.cash}
@@ -301,15 +301,15 @@ def run(lookback_min: int, dry_run: bool) -> int:
                 for a in alerts:
                     f.write(json.dumps({k: v for k, v in a.items() if k != "text"}, ensure_ascii=False) + "\n")
 
-    # 4) Rapport horaire des paris sous le seuil
+    # 4) Rapport horaire des paris sous le seuil (à heure fixe, rien la nuit, rapport de nuit au réveil)
     last = seen.get("report:hourly", {}).get("ts", 0)
-    if config.REPORT_EVERY_MIN and now - last >= (config.REPORT_EVERY_MIN - 5) * 60 and not dry_run:
-        start = max(last, now - int(config.REPORT_EVERY_MIN * 60) - 900)
+    if not dry_run and report.due(now, last):
+        start = report.window_start(now, last)
+        night = report.local(now).hour == config.REPORT_FIRST_HOUR
         logged = report.load_jsonl(CANDIDATES_FILE)
-        msgs = report.build(logged, report.load_jsonl(ALERTS_FILE), start, now)
-        for text in msgs:
+        for text in report.build(logged, report.load_jsonl(ALERTS_FILE), start, now, night):
             print("\n" + text)
-            notify.send(text)
+            notify.send(text, as_html=True)
         print(f"::notice title=Rapport horaire::{len(report.pick(logged, start, now))} pari(s) entre 30 et 59 "
               f"depuis {report.paris(start)} (heure de Paris)")
         seen["report:hourly"] = {"ts": now}
@@ -336,7 +336,8 @@ def main() -> int:
     args = ap.parse_args()
     if args.report:
         now = int(time.time())
-        msgs = report.build(report.load_jsonl(CANDIDATES_FILE), report.load_jsonl(ALERTS_FILE), now - args.report * 60, now)
+        msgs = report.build(report.load_jsonl(CANDIDATES_FILE), report.load_jsonl(ALERTS_FILE), now - args.report * 60, now,
+                            night=args.report > 120)
         print("\n\n".join(msgs) or "Rien à signaler.")
         return 0
     try:
