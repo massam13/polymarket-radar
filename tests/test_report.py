@@ -80,3 +80,25 @@ class TestHoraires(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestElections(unittest.TestCase):
+    def setUp(self):
+        from tests.test_scoring import trade
+        [self.g] = group_buys([trade(size=17_000, price=0.2263, timestamp=1_795_632_073,
+                                     title="Will Ko Chih-en win the next Kaohsiung Mayor election?",
+                                     eventSlug="kaohsiung-mayor-election-winner")])
+        self.wallet = {"age_days": 0.003, "markets_traded": 1, "volume_by_market": {"0xc1": 3820}, "busy": False}
+
+    def test_malus_de_10_avant_le_vote(self):
+        market = {"volume24hr": 4831, "endDate": "2026-11-28T23:59:00Z"}
+        avec, why = score_bet(self.g, self.wallet, market)
+        self.assertIn("élection : résultat imprévisible avant le vote", why)
+        sans, _ = score_bet(self.g, self.wallet, dict(market, endDate="2026-11-25T23:00:00Z"))  # soir du vote
+        self.assertEqual(sans - avec, 10)
+
+    def test_pas_de_malus_hors_election(self):
+        from radar.scoring import is_election
+        self.assertFalse(is_election("Will Jensen Huang rejoin NVIDIA by December 31, 2026?"))
+        self.assertFalse(is_election("Will J.D. Vance win the 2028 Republican presidential nomination?"))
+        self.assertTrue(is_election("Will Puma Shen win the 2026 Taipei Mayoral Election by 8% or more?"))

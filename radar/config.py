@@ -40,6 +40,10 @@ RUNUP_STRONG = (0.05, 1.5, -15)    # +5 pts et x1,5 en 24 h avant le 1er achat :
 RUNUP_MILD = (0.03, 1.25, -7)      # +3 pts et x1,25 : -7
 STABLE_PTS = _num("STABLE_PTS", 5)  # cote stable avant le pari : +5
 
+# --- Élections : le résultat n'est connu de personne avant le vote, un « initié » au sens strict est peu probable ---
+ELECTION_PTS = _num("ELECTION_PTS", -10)           # malus sur les marchés « qui gagne l'élection »…
+ELECTION_LAST_HOURS = _num("ELECTION_LAST_HOURS", 36)  # …sauf dans les 36 h avant la fin du marché (soir du vote, dépouillement)
+
 # --- Autres comptes neufs sur la même issue ---
 CROWD_HOURS = _num("CROWD_HOURS", 24)
 CROWD_MIN_CASH = _num("CROWD_MIN_CASH", 500)

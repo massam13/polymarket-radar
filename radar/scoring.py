@@ -209,6 +209,35 @@ def crowd_points(n_new: int | None) -> tuple[int, str | None]:
     return int(pts), what
 
 
+_ELECTION = re.compile(
+    r"\bwin\b.*\b(election|primary|runoff|race|by-election|popular vote)\b"
+    r"|\b(election|electoral|mayoral|presidential|gubernatorial|senate|parliamentary)\b.*\b(margin|winner|seats?)\b"
+    r"|\bmargin of victory\b|\bwin (the )?(most )?seats\b|\bbalance of power\b", re.I)
+_NOT_ELECTION = re.compile(r"\b(nominee|nomination|endorse|drop out|withdraw|run for|announce|candidacy)\b", re.I)
+
+
+def is_election(title: str, slug: str = "") -> bool:
+    """Marché sur le résultat d'un vote populaire (pas une investiture ni une annonce de candidature)."""
+    text = f"{title} {slug.replace('-', ' ')}"
+    return bool(_ELECTION.search(text)) and not _NOT_ELECTION.search(title)
+
+
+def election_points(g: "BuyGroup", market: dict | None) -> int:
+    """Malus « élection », sauf à l'approche de la fin du marché (soir du vote : le dépouillement est connu de quelques-uns)."""
+    if not config.ELECTION_PTS or not is_election(g.title, g.event_slug or g.slug):
+        return 0
+    end = (market or {}).get("endDate") or (market or {}).get("end_date")
+    if end:
+        from datetime import datetime
+        try:
+            end_ts = datetime.fromisoformat(str(end).replace("Z", "+00:00")).timestamp()
+            if end_ts - g.last_ts < config.ELECTION_LAST_HOURS * 3600:
+                return 0
+        except ValueError:
+            pass
+    return int(config.ELECTION_PTS)
+
+
 def _days(d: float) -> str:
     return f"{d / 365:.1f} an".replace(".0 an", " an").replace(".", ",") + ("s" if d >= 730 else "") if d >= 365 \
         else f"{d / 30.4:.0f} mois" if d >= 60 else f"{d:.0f} j"
@@ -263,9 +292,15 @@ def score_parts(g: BuyGroup, wallet: dict, market: dict | None, theme_cash: floa
     if v24 > 0:
         s = g.cash / v24
         vp = 10 if s >= 0.5 else 6 if s >= 0.2 else 0
-        add("volume", vp, 10, f"{s:.0%} du volume 24 h du marché", f"pèse peu sur le marché ({s:.0%} du volume 24 h)")
+        add("volume", vp, 10, f"{s:.0%} du volume 24 h du marché",
+            f"pèse peu sur le marché ({s:.0%} du volume 24 h)" if vp < 6 else f"{s:.0%} du volume 24 h du marché")
     else:
         add("volume", 0, 10, None, "volume 24 h du marché inconnu")
+
+    ep = election_points(g, market)
+    if ep:
+        add("élection", ep, 0, "élection : résultat imprévisible avant le vote",
+            "élection : résultat imprévisible avant le vote")
 
     add("ordres", 5 if g.fills >= 3 else 0, 5, f"{g.fills} ordres successifs",
         "un seul ordre" if g.fills == 1 else f"{g.fills} ordres" if g.fills < 3 else f"{g.fills} ordres successifs")
