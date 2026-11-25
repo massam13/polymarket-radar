@@ -42,7 +42,7 @@ STABLE_PTS = _num("STABLE_PTS", 5)  # cote stable avant le pari : +5
 
 # --- Élections : le résultat n'est connu de personne avant le vote, un « initié » au sens strict est peu probable ---
 ELECTION_PTS = _num("ELECTION_PTS", -10)           # malus sur les marchés « qui gagne l'élection »…
-ELECTION_LAST_HOURS = _num("ELECTION_LAST_HOURS", 36)  # …sauf dans les 36 h avant la fin du marché (soir du vote, dépouillement)
+ELECTION_LAST_HOURS = _num("ELECTION_LAST_HOURS", 24)  # …sauf dans les 24 h avant la fin du marché (soir du vote, dépouillement)
 
 # --- Autres comptes neufs sur la même issue ---
 CROWD_HOURS = _num("CROWD_HOURS", 24)

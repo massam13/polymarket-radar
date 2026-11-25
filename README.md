@@ -17,7 +17,7 @@ Lecture seule des API publiques Polymarket (`data-api`, `gamma-api`), aucune cl�
 | Issue improbable : de 30 pts (≤ 5 %) à 0 pt (40 %), en continu | 0 – 30 |
 | Mise : ≥ 50 k$ / 25 k$ / 10 k$ / 3 k$ / 1 k$ — cumulée sur le sujet dans l'heure | 30 / 25 / 20 / 12 / 6 |
 | Compte neuf : < 2 j / 7 j / 14 j / 30 j / 90 j | 20 / 15 / 12 / 8 / 3 |
-| Élection (« qui gagne le vote »), sauf dans les 36 h avant la fin du marché : résultat imprévisible avant le vote | −10 |
+| Élection (« qui gagne le vote »), sauf dans les 24 h avant la fin du marché : résultat imprévisible avant le vote | −10 |
 | Part de son argent sur ce sujet : ≥ 90 % / 75 % / 50 % | 15 / 10 / 5 |
 | Mise ≥ 50 % / 20 % du volume 24 h du marché | 10 / 6 |
 | ≥ 3 ordres successifs (accumulation) | 5 |
