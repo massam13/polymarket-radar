@@ -28,6 +28,9 @@ REALERT_FACTOR = _num("REALERT_FACTOR", 2.0)       # ré-alerte si la mise a ét
 LOG_MIN_SCORE = _num("LOG_MIN_SCORE", 30)          # paris notés à partir de 30 gardés dans state/candidates.jsonl
 CONTEXT_MIN_SCORE = _num("CONTEXT_MIN_SCORE", 45)  # au-dessus, on regarde la cote d'avant et les autres acheteurs
 
+# --- Comptes surveillés (watchlist.json) : chaque achat ou vente est envoyé, quel que soit le score ---
+WATCH_MIN_CASH = _num("WATCH_MIN_CASH", 50)        # en dessous, on ignore (poussière, arrondis)
+
 # --- Rapport horaire (paris notés sous le seuil d'alerte, avec ce qui leur a manqué) ---
 REPORT_EVERY_MIN = _num("REPORT_EVERY_MIN", 60)    # 0 pour couper le rapport
 REPORT_EMPTY = _num("REPORT_EMPTY", 0) > 0         # 1 pour envoyer aussi « rien à signaler » en journée

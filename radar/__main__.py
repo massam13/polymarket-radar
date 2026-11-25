@@ -9,7 +9,7 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-from . import chain, config, notify, report
+from . import chain, config, notify, report, watch
 from . import polymarket as pm
 from .scoring import (crowd_wallets, fmt_usd, group_buys, hedged, is_longshot, is_news_topic, price_context, is_same_day_market, market_move, move_drivers,
                       prelim_score, score_bet, score_parts, theme_burst, theme_clusters, theme_keys)
@@ -305,12 +305,17 @@ def run(lookback_min: int, dry_run: bool) -> int:
                        "condition_id": m.get("conditionId"), "volume24hr": m.get("volume24hr"),
                        "drivers": drivers, "text": move_message(m, d1h, outcome, drivers, top_profile)})
 
-    # 3) Envoi + mémoire
+    # 3) Comptes surveillés : tout achat ou vente, quel que soit le score
+    for key, text in watch.check(seen, now):
+        alerts.append({"kind": "watch", "key": f"{key}:{now}", "text": text, "html": True})
+
+    # 4) Envoi + mémoire
     for a in alerts:
         print("\n" + a["text"])
-        channels = [] if dry_run else notify.send(a["text"])
+        channels = [] if dry_run else notify.send(a["text"], as_html=a.get("html", False))
         a["sent_to"], a["ts"] = channels, now
-        seen[a["key"]] = {"ts": now, "cash": a.get("cash", 0)}
+        if a["kind"] != "watch":
+            seen[a["key"]] = {"ts": now, "cash": a.get("cash", 0)}
     if not dry_run:
         save_seen(seen, now)
         if candidates_log:
@@ -322,7 +327,7 @@ def run(lookback_min: int, dry_run: bool) -> int:
                 for a in alerts:
                     f.write(json.dumps({k: v for k, v in a.items() if k != "text"}, ensure_ascii=False) + "\n")
 
-    # 4) Rapport horaire des paris sous le seuil (à heure fixe, rien la nuit, rapport de nuit au réveil)
+    # 5) Rapport horaire des paris sous le seuil (à heure fixe, rien la nuit, rapport de nuit au réveil)
     last = seen.get("report:hourly", {}).get("ts", 0)
     if not dry_run and report.due(now, last):
         start = report.window_start(now, last)
