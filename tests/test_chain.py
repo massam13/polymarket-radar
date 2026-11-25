@@ -47,3 +47,22 @@ class TestMakers(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestPositionsCouvertes(unittest.TestCase):
+    def test_echange_entre_complices_ecarte(self):
+        # TraeDing (Soudan, 25/11) : achète « Non » à 0,90 et « Oui » à 0,10, autant de parts, puis fusionne
+        from radar.scoring import hedged
+        from tests.test_scoring import trade
+        groups = group_buys([trade(proxyWallet="0xfb83", outcomeIndex=1, outcome="No", size=1800, price=0.9),
+                             trade(proxyWallet="0xfb83", outcomeIndex=0, outcome="Yes", size=1800, price=0.1)])
+        yes = [g for g in groups if g.outcome_index == 0][0]
+        self.assertTrue(hedged(yes, groups))
+
+    def test_pari_dans_un_seul_sens_garde(self):
+        from radar.scoring import hedged
+        from tests.test_scoring import trade
+        groups = group_buys([trade(size=71_500, price=0.065), trade(proxyWallet="0xautre", outcomeIndex=1, size=40_000, price=0.935),
+                             trade(outcomeIndex=1, outcome="No", size=1_000, price=0.935)])  # petite couverture : 1,4 % des parts
+        main = [g for g in groups if g.wallet == "0xabc" and g.outcome_index == 0][0]
+        self.assertFalse(hedged(main, groups))

@@ -23,6 +23,7 @@ MIN_GROUP_CASH = _num("MIN_GROUP_CASH", 1000)      # mise cumulée minimale d'un
 MAX_PRICE = _num("MAX_PRICE", 0.35)                # au-delà, l'issue n'est plus « improbable »
 MIN_PRICE = _num("MIN_PRICE", 0.01)                # en dessous, le marché est déjà joué : billet de loterie, pas un pari informé
 MIN_SCORE = _num("MIN_SCORE", 60)                  # seuil d'alerte (0-100)
+HEDGE_RATIO = _num("HEDGE_RATIO", 0.5)            # achète aussi l'issue opposée (≥ 50 % des parts) dans l'heure : pas un pari
 REALERT_FACTOR = _num("REALERT_FACTOR", 2.0)       # ré-alerte si la mise a été multipliée par 2 depuis
 LOG_MIN_SCORE = _num("LOG_MIN_SCORE", 30)          # paris notés à partir de 30 gardés dans state/candidates.jsonl
 CONTEXT_MIN_SCORE = _num("CONTEXT_MIN_SCORE", 45)  # au-dessus, on regarde la cote d'avant et les autres acheteurs

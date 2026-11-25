@@ -153,6 +153,14 @@ def _age_pts(age: float) -> int:
     return 0
 
 
+def hedged(g: BuyGroup, groups: list[BuyGroup]) -> bool:
+    """Le compte achète aussi l'autre issue du même marché dans la fenêtre : sa position nette est faible ou nulle.
+    Typique des échanges entre comptes complices pour gonfler le volume (achat Oui + Non puis fusion) : pas un pari."""
+    other = sum(x.shares for x in groups if x.wallet == g.wallet and x.condition_id == g.condition_id
+                and x.outcome_index != g.outcome_index)
+    return g.shares > 0 and other >= config.HEDGE_RATIO * g.shares
+
+
 def theme_burst(g: BuyGroup, groups: list[BuyGroup], theme_of: dict[str, int]) -> float:
     """Mises cumulées du même compte sur le même sujet dans la fenêtre (ex. « frappes avant le 20 / le 28 / le 15 mars »)."""
     mine = theme_of.get(g.condition_id)

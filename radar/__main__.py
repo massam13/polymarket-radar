@@ -11,7 +11,7 @@ from pathlib import Path
 
 from . import chain, config, notify, report
 from . import polymarket as pm
-from .scoring import (crowd_wallets, fmt_usd, group_buys, is_longshot, is_news_topic, price_context, is_same_day_market, market_move, move_drivers,
+from .scoring import (crowd_wallets, fmt_usd, group_buys, hedged, is_longshot, is_news_topic, price_context, is_same_day_market, market_move, move_drivers,
                       prelim_score, score_bet, score_parts, theme_burst, theme_clusters, theme_keys)
 
 STATE = Path(__file__).resolve().parent.parent / "state"
@@ -170,6 +170,12 @@ def run(lookback_min: int, dry_run: bool) -> int:
         print(f"::warning title=Makers KO::{type(e).__name__}: {e}"[:300])
     all_groups = group_buys(trades)
     groups = [g for g in all_groups if g.cash >= config.MIN_GROUP_CASH and is_longshot(g.avg_price)]
+    covered = [g for g in groups if hedged(g, all_groups)]
+    if covered:
+        print("::notice title=Positions couvertes écartées::" + " · ".join(
+            f"{g.pseudonym or g.wallet[:10]} {fmt_usd(g.cash)} sur « {g.outcome} » + l'issue opposée ({g.title[:40]})"
+            for g in covered[:5]))
+    groups = [g for g in groups if g not in covered]
     stats["groups"] = len(groups)
 
     # Le flux v2 ne donne plus slug / event / tags : on complète via Gamma (en cache, nombre de lookups borné)

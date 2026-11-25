@@ -11,7 +11,7 @@ from pathlib import Path
 
 from . import config
 from . import polymarket as pm
-from .scoring import fmt_usd, group_buys, is_longshot, theme_burst, theme_clusters, theme_keys
+from .scoring import fmt_usd, group_buys, hedged, is_longshot, theme_burst, theme_clusters, theme_keys
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -201,7 +201,7 @@ def replay_scans(wallet: str, acts: list[dict], crowd: bool = True, tapes: dict 
     for scan in scan_times:
         lo, hi = bisect.bisect_right(vis_ts, scan - 3600), bisect.bisect_right(vis_ts, scan)
         window = group_buys(visible[lo:hi])
-        groups = [g for g in window if g.cash >= config.MIN_GROUP_CASH and is_longshot(g.avg_price)]
+        groups = [g for g in window if g.cash >= config.MIN_GROUP_CASH and is_longshot(g.avg_price) and not hedged(g, window)]
         if not groups:
             continue
         past = trades[: bisect.bisect_right(tr_ts, scan)]
