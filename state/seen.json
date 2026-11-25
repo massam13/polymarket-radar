@@ -66,5 +66,8 @@
  "move:0xeb5cf0ef5953a5d3bc98f4066def7ac8b1fe85a8a1982add4b53b87826695cc9": {
   "cash": 0,
   "ts": 1795554059
+ },
+ "report:hourly": {
+  "ts": 1795619736
  }
 }
