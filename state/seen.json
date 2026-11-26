@@ -215,6 +215,10 @@
   "cash": 1173.896,
   "ts": 1795653933
  },
+ "log:bet:0x8c3fe43e4a339f96c87a0aaaacefaefef4f85ceb:0xbfcfea1aee77b3fac2d0d4a3d8cb2cbceb9d5a5b37f04a49a757e94879fb4a58:0": {
+  "cash": 1199.9999996139315,
+  "ts": 1795701669
+ },
  "log:bet:0x9c9fe391bf7ba8701bc97c9e561a46cbce11e2d2:0xa15db4928bdf30d1f080ac6efccb2d0ea92ca9748158b53aa291b2b243701214:1": {
   "cash": 4977.082099984323,
   "ts": 1795692649
@@ -336,10 +340,10 @@
   "ts": 1795554059
  },
  "report:hourly": {
-  "ts": 1795698062
+  "ts": 1795701669
  },
  "watch:0xbad77c4805acd8e7abdac9ea8365c417ddf82879": {
   "last": 1795642254,
-  "ts": 1795700734
+  "ts": 1795701669
  }
 }
