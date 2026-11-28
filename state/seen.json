@@ -63,6 +63,10 @@
   "cash": 1213.572,
   "ts": 1795808734
  },
+ "bet:0x834a2c2cc6bfcc5652ed2a893b4aecedfd647e77:0x162e356bfab7ad18fe4e3029d5811d9a95fce95d93858b42924a3b9ffbcf1a93:1": {
+  "cash": 9800.25,
+  "ts": 1795856460
+ },
  "bet:0x834a2c2cc6bfcc5652ed2a893b4aecedfd647e77:0x405a426de0bc2ba64747ef4317787876bba0acb9a3cbb5d140c359d10cc90c7e:1": {
   "cash": 1000.0,
   "ts": 1795810534
@@ -491,6 +495,10 @@
   "cash": 1213.572,
   "ts": 1795808734
  },
+ "log:bet:0x834a2c2cc6bfcc5652ed2a893b4aecedfd647e77:0x162e356bfab7ad18fe4e3029d5811d9a95fce95d93858b42924a3b9ffbcf1a93:1": {
+  "cash": 9800.2494,
+  "ts": 1795856460
+ },
  "log:bet:0x834a2c2cc6bfcc5652ed2a893b4aecedfd647e77:0x405a426de0bc2ba64747ef4317787876bba0acb9a3cbb5d140c359d10cc90c7e:1": {
   "cash": 1000.0,
   "ts": 1795810534
@@ -852,10 +860,10 @@
   "ts": 1795554059
  },
  "report:hourly": {
-  "ts": 1795852858
+  "ts": 1795856460
  },
  "watch:0xbad77c4805acd8e7abdac9ea8365c417ddf82879": {
   "last": 1795642254,
-  "ts": 1795855533
+  "ts": 1795856460
  }
 }
